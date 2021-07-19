@@ -50,7 +50,7 @@ impl Action {
                             content: formatted_content,
                         },
                     )
-                    .await
+                    .await.map(|_m| ())
             }
         }
     }
@@ -304,14 +304,15 @@ async fn main() {
     let discord_token =
         std::env::var("DISCORD_TOKEN").expect("Couldn't retrieve DISCORD_TOKEN variable");
 
+    let config_path = std::env::args().nth(1).unwrap_or("chrysanthemum.cfg.json".to_owned());
+
     // Ugly: Strip out single-line comments from the source. serde_json doesn't
     // support comments, but config files kind of need them.
     let comment_regex = Regex::new("//[^\n]*\n").unwrap();
     let cfg_str =
-        std::fs::read_to_string("chrysanthemum.cfg.json").expect("couldn't read config file");
+        std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg_json = comment_regex.replace_all(&cfg_str, "");
     let cfg: Config = serde_json::from_str(&cfg_json).expect("Couldn't deserialize config");
-    println!("{:#?}", cfg);
 
     let client = discordant::http::Client::new(&discord_token);
     let gateway_info = client.get_gateway_info().await.unwrap();
