@@ -272,6 +272,45 @@ struct FilterConfig {
     actions: Vec<Action>,
 }
 
+impl FilterConfig {
+    fn filter_message(&self, message: &Message) -> FilterResult {
+        if self.include_channels.len() == 0 {
+            if self
+                .exclude_channels
+                .iter()
+                .any(|c| message.channel_id == *c)
+            {
+                return Ok(())
+            }
+        }
+
+        if !self
+            .include_channels
+            .iter()
+            .any(|c| message.channel_id == *c)
+        {
+            return Ok(())
+        }
+
+        if let Some(member_info) = &message.member {
+            if self
+                .exclude_roles
+                .iter()
+                .any(|r| member_info.roles.contains(r))
+            {
+                return Ok(())
+            }
+        }
+
+        self
+            .rules
+            .iter()
+            .map(|f| f.check_match(&message))
+            .find(|r| r.is_err())
+            .unwrap_or(Ok(()))
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct GuildConfig {
     filters: Vec<FilterConfig>,
@@ -341,38 +380,7 @@ async fn main() {
                         // will only ever receive guild messages via our intent.
                         if let Some(guild_config) = cfg.guilds.get(&message.guild_id.unwrap()) {
                             for filter in &guild_config.filters {
-                                if filter
-                                    .exclude_channels
-                                    .iter()
-                                    .any(|c| message.channel_id == *c)
-                                {
-                                    continue;
-                                }
-
-                                if !filter
-                                    .include_channels
-                                    .iter()
-                                    .any(|c| message.channel_id == *c)
-                                {
-                                    continue;
-                                }
-
-                                if let Some(member_info) = &message.member {
-                                    if filter
-                                        .exclude_roles
-                                        .iter()
-                                        .any(|r| member_info.roles.contains(r))
-                                    {
-                                        continue;
-                                    }
-                                }
-
-                                let filter_result = filter
-                                    .rules
-                                    .iter()
-                                    .map(|f| f.check_match(&message))
-                                    .find(|r| r.is_err())
-                                    .unwrap_or(Ok(()));
+                                let filter_result = filter.filter_message(&message);
 
                                 if let Err(reason) = filter_result {
                                     for action in &filter.actions {
