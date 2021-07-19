@@ -250,7 +250,7 @@ struct SpamThreshold {
     interval: u16,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 struct SpamConfig {
     emoji: Option<SpamThreshold>,
     duplicates: Option<SpamThreshold>,
@@ -258,7 +258,7 @@ struct SpamConfig {
     attachments: Option<SpamThreshold>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 struct FilterConfig {
     rules: Vec<Filter>,
     spam: SpamConfig,
@@ -395,7 +395,7 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
-    use discordant::types::{Attachment, MessageStickerItem};
+    use discordant::types::{Attachment, MessageGuildMemberInfo, MessageStickerItem};
 
     use super::*;
 
@@ -682,5 +682,106 @@ mod test {
         } else {
             assert!(false, "deserialized wrong filter");
         }
+    }
+
+    #[test]
+    fn exclude_channels() {
+        let cfg = FilterConfig {
+            rules: vec![
+                Filter::Words {
+                    words: Regex::new("\\b(a)\\b").unwrap(),
+                }
+            ],
+            exclude_channels: vec![Snowflake::new(1)],
+            ..Default::default()
+        };
+
+        let message = Message {
+            content: "a".to_owned(),
+            channel_id: Snowflake::new(1),
+            ..Default::default()
+        };
+
+        let result = cfg.filter_message(&message);
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn include_channels() {
+        let cfg = FilterConfig {
+            rules: vec![
+                Filter::Words {
+                    words: Regex::new("\\b(a)\\b").unwrap(),
+                }
+            ],
+            include_channels: vec![Snowflake::new(1)],
+            ..Default::default()
+        };
+
+        let message_0 = Message {
+            content: "a".to_owned(),
+            channel_id: Snowflake::new(0),
+            ..Default::default()
+        };
+
+        let message_1 = Message {
+            content: "a".to_owned(),
+            channel_id: Snowflake::new(1),
+            ..Default::default()
+        };
+
+        let result_0 = cfg.filter_message(&message_0);
+        assert_eq!(result_0, Ok(()));
+
+        let result_1 = cfg.filter_message(&message_1);
+        assert_eq!(result_1, Err("contains word a".to_owned()));
+    }
+
+    #[test]
+    fn exclude_channels_only_if_no_include_channels() {
+        let cfg = FilterConfig {
+            rules: vec![
+                Filter::Words {
+                    words: Regex::new("\\b(a)\\b").unwrap(),
+                }
+            ],
+            exclude_channels: vec![Snowflake::new(1)],
+            include_channels: vec![Snowflake::new(1)],
+            ..Default::default()
+        };
+
+        let message = Message {
+            content: "a".to_owned(),
+            channel_id: Snowflake::new(1),
+            ..Default::default()
+        };
+
+        let result = cfg.filter_message(&message);
+        assert_eq!(result, Err("contains word a".to_owned()));
+    }
+
+    #[test]
+    fn exclude_roles() {
+        let cfg = FilterConfig {
+            rules: vec![
+                Filter::Words {
+                    words: Regex::new("\\b(a)\\b").unwrap(),
+                }
+            ],
+            exclude_roles: vec![Snowflake::new(0)],
+            ..Default::default()
+        };
+
+        let message = Message {
+            content: "a".to_owned(),
+            member: Some(MessageGuildMemberInfo {
+                roles: vec![Snowflake::new(0)],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let result = cfg.filter_message(&message);
+        assert_eq!(result, Ok(()));
     }
 }
