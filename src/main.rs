@@ -259,6 +259,7 @@ struct SpamConfig {
     duplicates: Option<SpamThreshold>,
     links: Option<SpamThreshold>,
     attachments: Option<SpamThreshold>,
+    spoilers: Option<SpamThreshold>,
 }
 
 #[derive(Deserialize, Debug, Default)]
