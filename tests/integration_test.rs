@@ -1,8 +1,8 @@
 use std::convert::TryInto;
 
-use discordant::gateway::{self, Event, Gateway, Intents, connect_to_gateway};
+use discordant::gateway::{Event, Gateway, Intents, connect_to_gateway};
 use tokio::process::Command;
-use tokio::time::{Duration, Instant, sleep};
+use tokio::time::{Duration, sleep};
 
 use discordant::{http::{Client, CreateMessagePayload}, types::Snowflake};
 
