@@ -211,7 +211,10 @@ impl Filter {
                     return Err("unknown content type for attachment".to_owned());
                 }
 
-                let mut attachment_types = message.attachments.iter().filter_map(|a|  a.content_type.as_deref());
+                let mut attachment_types = message
+                    .attachments
+                    .iter()
+                    .filter_map(|a| a.content_type.as_deref());
                 filter_values(mode, "content type", &mut attachment_types, types)
             }
             Filter::Invite { mode, invites } => {
@@ -270,10 +273,11 @@ struct FilterConfig {
 
 impl FilterConfig {
     fn filter_message(&self, message: &Message) -> FilterResult {
-        if self.include_channels.is_empty() && self
-            .exclude_channels
-            .iter()
-            .any(|c| message.channel_id == *c)
+        if self.include_channels.is_empty()
+            && self
+                .exclude_channels
+                .iter()
+                .any(|c| message.channel_id == *c)
         {
             return Ok(());
         }
@@ -385,7 +389,7 @@ async fn main() {
                         }
                     });
                 }
-            },
+            }
             Err(err) => {
                 log::error!("Error: {:?}", err);
             }
@@ -687,11 +691,9 @@ mod test {
     #[test]
     fn exclude_channels() {
         let cfg = FilterConfig {
-            rules: vec![
-                Filter::Words {
-                    words: Regex::new("\\b(a)\\b").unwrap(),
-                }
-            ],
+            rules: vec![Filter::Words {
+                words: Regex::new("\\b(a)\\b").unwrap(),
+            }],
             exclude_channels: vec![Snowflake::new(1)],
             ..Default::default()
         };
@@ -709,11 +711,9 @@ mod test {
     #[test]
     fn include_channels() {
         let cfg = FilterConfig {
-            rules: vec![
-                Filter::Words {
-                    words: Regex::new("\\b(a)\\b").unwrap(),
-                }
-            ],
+            rules: vec![Filter::Words {
+                words: Regex::new("\\b(a)\\b").unwrap(),
+            }],
             include_channels: vec![Snowflake::new(1)],
             ..Default::default()
         };
@@ -740,11 +740,9 @@ mod test {
     #[test]
     fn exclude_channels_only_if_no_include_channels() {
         let cfg = FilterConfig {
-            rules: vec![
-                Filter::Words {
-                    words: Regex::new("\\b(a)\\b").unwrap(),
-                }
-            ],
+            rules: vec![Filter::Words {
+                words: Regex::new("\\b(a)\\b").unwrap(),
+            }],
             exclude_channels: vec![Snowflake::new(1)],
             include_channels: vec![Snowflake::new(1)],
             ..Default::default()
@@ -763,11 +761,9 @@ mod test {
     #[test]
     fn exclude_roles() {
         let cfg = FilterConfig {
-            rules: vec![
-                Filter::Words {
-                    words: Regex::new("\\b(a)\\b").unwrap(),
-                }
-            ],
+            rules: vec![Filter::Words {
+                words: Regex::new("\\b(a)\\b").unwrap(),
+            }],
             exclude_roles: vec![Snowflake::new(0)],
             ..Default::default()
         };
