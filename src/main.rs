@@ -282,20 +282,24 @@ struct Config {
     guilds: HashMap<Snowflake, GuildConfig>,
 }
 
+fn init_globals() {
+    // The Err case here is if the cell already has a value in it. In this case
+    // we want to just ignore it. The only time this will happen is in tests,
+    // where each test can call init_globals().
+    let _ = ZALGO_REGEX
+        .set(Regex::new("\\u0303|\\u035F|\\u034F|\\u0327|\\u031F|\\u0353|\\u032F|\\u0318|\\u0353|\\u0359|\\u0354").unwrap());
+    let _ = INVITE_REGEX
+        .set(Regex::new("discord.gg/(\\w+)").unwrap());
+    let _ = LINK_REGEX
+        .set(Regex::new("https?://([^/\\s]+)").unwrap());
+}
+
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
     pretty_env_logger::init();
 
-    ZALGO_REGEX
-        .set(Regex::new("[\\xCC\\xCD]").unwrap())
-        .unwrap();
-    INVITE_REGEX
-        .set(Regex::new("discord.gg/(\\w+)").unwrap())
-        .unwrap();
-    LINK_REGEX
-        .set(Regex::new("https?://([^/\\s]+)").unwrap())
-        .unwrap();
+    init_globals();
 
     let discord_token =
         std::env::var("DISCORD_TOKEN").expect("Couldn't retrieve DISCORD_TOKEN variable");
@@ -385,6 +389,235 @@ async fn main() {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use discordant::types::{Attachment, MessageStickerItem};
+
+    use super::*;
+
+    #[test]
+    fn filter_words() {
+        let rule = Filter::Words {
+            words: Regex::new("\\b(a|b)\\b").unwrap(),
+        };
+
+        assert_eq!(rule.check_match(&Message { content: "c".to_owned(), ..Default::default() }), Ok(()));
+        assert_eq!(rule.check_match(&Message { content: "a".to_owned(), ..Default::default() }), Err("contains word a".to_owned()));
+    }
+
+    #[test]
+    fn filter_regex() {
+        let rule = Filter::Regex {
+            regexes: vec![
+                Regex::new("a|b").unwrap(),
+            ]
+        };
+
+        assert_eq!(rule.check_match(&Message { content: "c".to_owned(), ..Default::default() }), Ok(()));
+        assert_eq!(rule.check_match(&Message { content: "a".to_owned(), ..Default::default() }), Err("matches regex a|b".to_owned()));
+    }
+
+    #[test]
+    fn filter_zalgo() {
+        init_globals();
+
+        let rule = Filter::Zalgo;
+
+        assert_eq!(rule.check_match(&Message { content: "c".to_owned(), ..Default::default() }), Ok(()));
+        assert_eq!(rule.check_match(&Message { content: "t̸͈͈̒̑͛ê̷͓̜͎s̴̡͍̳͊t̴̪͙́̚".to_owned(), ..Default::default() }), Err("contains zalgo".to_owned()));
+    }
+
+    #[test]
+    fn filter_mime_type() {
+        let allow_rule = Filter::MimeType {
+            mode: FilterMode::AllowList,
+            types: vec!["image/png".to_owned()],
+            allow_unknown: true,
+        };
+
+        let deny_rule = Filter::MimeType {
+            mode: FilterMode::DenyList,
+            types: vec!["image/png".to_owned()],
+            allow_unknown: true,
+        };
+
+        let png_message = Message {
+            attachments: vec! [
+                Attachment {
+                    content_type: Some("image/png".to_owned()),
+                    ..Default::default()
+                }
+            ],
+            ..Default::default()
+        };
+
+        let gif_message = Message {
+            attachments: vec! [
+                Attachment {
+                    content_type: Some("image/gif".to_owned()),
+                    ..Default::default()
+                }
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(allow_rule.check_match(&png_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&gif_message), Err("contains unallowed content type image/gif".to_owned()));
+
+        assert_eq!(deny_rule.check_match(&png_message), Err("contains denied content type image/png".to_owned()));
+        assert_eq!(deny_rule.check_match(&gif_message), Ok(()));
+    }
+
+    #[test]
+    fn filter_unknown_mime_type() {
+        let allow_rule = Filter::MimeType {
+            mode: FilterMode::AllowList,
+            types: vec!["image/png".to_owned()],
+            allow_unknown: true,
+        };
+
+        let deny_rule = Filter::MimeType {
+            mode: FilterMode::AllowList,
+            types: vec!["image/png".to_owned()],
+            allow_unknown: false,
+        };
+
+        let unknown_message = Message {
+            attachments: vec! [
+                Attachment {
+                    content_type: None,
+                    ..Default::default()
+                }
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(allow_rule.check_match(&unknown_message), Ok(()));
+        assert_eq!(deny_rule.check_match(&unknown_message), Err("unknown content type for attachment".to_owned()));
+    }
+
+    #[test]
+    fn filter_invites() {
+        init_globals();
+
+        let allow_rule = Filter::Invite {
+            mode: FilterMode::AllowList,
+            invites: vec!["roblox".to_owned()],
+        };
+
+        let deny_rule = Filter::Invite {
+            mode: FilterMode::DenyList,
+            invites: vec!["roblox".to_owned()],
+        };
+
+        let roblox_message = Message {
+            content: "discord.gg/roblox".to_owned(),
+            ..Default::default()
+        };
+
+        let not_roblox_message = Message {
+            content: "discord.gg/asdf".to_owned(),
+            ..Default::default()
+        };
+
+        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&not_roblox_message), Err("contains unallowed invite asdf".to_owned()));
+        
+        assert_eq!(deny_rule.check_match(&roblox_message), Err("contains denied invite roblox".to_owned()));
+        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
+    }
+
+    #[test]
+    fn filter_domains() {
+        init_globals();
+
+        let allow_rule = Filter::Link {
+            mode: FilterMode::AllowList,
+            domains: vec!["roblox.com".to_owned()],
+        };
+
+        let deny_rule = Filter::Link {
+            mode: FilterMode::DenyList,
+            domains: vec!["roblox.com".to_owned()],
+        };
+
+        let roblox_message = Message {
+            content: "https://roblox.com/".to_owned(),
+            ..Default::default()
+        };
+
+        let not_roblox_message = Message {
+            content: "https://discord.com/".to_owned(),
+            ..Default::default()
+        };
+
+        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&not_roblox_message), Err("contains unallowed domain discord.com".to_owned()));
+        
+        assert_eq!(deny_rule.check_match(&roblox_message), Err("contains denied domain roblox.com".to_owned()));
+        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
+    }
+
+    #[test]
+    fn filter_stickers() {
+        let allow_rule = Filter::Sticker {
+            mode: FilterMode::AllowList,
+            stickers: vec![Snowflake::new(0)],
+        };
+
+        let deny_rule = Filter::Sticker {
+            mode: FilterMode::DenyList,
+            stickers: vec![Snowflake::new(0)],
+        };
+
+        let zero_sticker = Message {
+            sticker_items: Some(vec![
+                MessageStickerItem {
+                    id: Snowflake::new(0),
+                    name: "test".to_owned(),
+                    format_type: discordant::types::MessageStickerFormat::Png,
+                }
+            ]),
+            ..Default::default()
+        };
+
+        let non_zero_sticker = Message {
+            sticker_items: Some(vec![
+                MessageStickerItem {
+                    id: Snowflake::new(1),
+                    name: "test".to_owned(),
+                    format_type: discordant::types::MessageStickerFormat::Png,
+                }
+            ]),
+            ..Default::default()
+        };
+
+        assert_eq!(allow_rule.check_match(&zero_sticker), Ok(()));
+        assert_eq!(allow_rule.check_match(&non_zero_sticker), Err("contains unallowed sticker 1".to_owned()));
+        
+        assert_eq!(deny_rule.check_match(&zero_sticker), Err("contains denied sticker 0".to_owned()));
+        assert_eq!(deny_rule.check_match(&non_zero_sticker), Ok(()));
+    }
+
+    #[test]
+    fn deserialize_word_regex() {
+        let json = r#"
+        {
+            "type": "words",
+            "words": ["a", "b", "a(b)"]
+        }
+        "#;
+
+        let rule: Filter = serde_json::from_str(&json).expect("couldn't deserialize Filter");
+        
+        if let Filter::Words { words } = rule {
+            assert_eq!(words.to_string(), "\\b(a|b|a\\(b\\))\\b");
+        } else {
+            assert!(false, "deserialized wrong filter");
         }
     }
 }
