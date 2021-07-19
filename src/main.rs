@@ -50,7 +50,8 @@ impl Action {
                             content: formatted_content,
                         },
                     )
-                    .await.map(|_m| ())
+                    .await
+                    .map(|_m| ())
             }
         }
     }
@@ -210,14 +211,16 @@ impl Filter {
                     return Err("unknown content type for attachment".to_owned());
                 }
 
-                let mut attachment_types = message.attachments.iter().filter_map(|a| if let Some(content_type) = &a.content_type {
-                    Some(content_type.as_str())
-                } else {
-                    None
+                let mut attachment_types = message.attachments.iter().filter_map(|a| {
+                    if let Some(content_type) = &a.content_type {
+                        Some(content_type.as_str())
+                    } else {
+                        None
+                    }
                 });
 
                 filter_values(mode, "content type", &mut attachment_types, types)
-            },
+            }
             Filter::Invite { mode, invites } => {
                 let invite_regex = INVITE_REGEX.get().unwrap();
                 let mut invite_ids = invite_regex
@@ -280,7 +283,7 @@ impl FilterConfig {
                 .iter()
                 .any(|c| message.channel_id == *c)
             {
-                return Ok(())
+                return Ok(());
             }
         }
 
@@ -289,7 +292,7 @@ impl FilterConfig {
             .iter()
             .any(|c| message.channel_id == *c)
         {
-            return Ok(())
+            return Ok(());
         }
 
         if let Some(member_info) = &message.member {
@@ -298,12 +301,11 @@ impl FilterConfig {
                 .iter()
                 .any(|r| member_info.roles.contains(r))
             {
-                return Ok(())
+                return Ok(());
             }
         }
 
-        self
-            .rules
+        self.rules
             .iter()
             .map(|f| f.check_match(&message))
             .find(|r| r.is_err())
@@ -327,10 +329,8 @@ fn init_globals() {
     // where each test can call init_globals().
     let _ = ZALGO_REGEX
         .set(Regex::new("\\u0303|\\u035F|\\u034F|\\u0327|\\u031F|\\u0353|\\u032F|\\u0318|\\u0353|\\u0359|\\u0354").unwrap());
-    let _ = INVITE_REGEX
-        .set(Regex::new("discord.gg/(\\w+)").unwrap());
-    let _ = LINK_REGEX
-        .set(Regex::new("https?://([^/\\s]+)").unwrap());
+    let _ = INVITE_REGEX.set(Regex::new("discord.gg/(\\w+)").unwrap());
+    let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
 }
 
 #[tokio::main]
@@ -343,13 +343,14 @@ async fn main() {
     let discord_token =
         std::env::var("DISCORD_TOKEN").expect("Couldn't retrieve DISCORD_TOKEN variable");
 
-    let config_path = std::env::args().nth(1).unwrap_or("chrysanthemum.cfg.json".to_owned());
+    let config_path = std::env::args()
+        .nth(1)
+        .unwrap_or("chrysanthemum.cfg.json".to_owned());
 
     // Ugly: Strip out single-line comments from the source. serde_json doesn't
     // support comments, but config files kind of need them.
     let comment_regex = Regex::new("//[^\n]*\n").unwrap();
-    let cfg_str =
-        std::fs::read_to_string(&config_path).expect("couldn't read config file");
+    let cfg_str = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg_json = comment_regex.replace_all(&cfg_str, "");
     let cfg: Config = serde_json::from_str(&cfg_json).expect("Couldn't deserialize config");
 
@@ -414,20 +415,44 @@ mod test {
             words: Regex::new("\\b(a|b)\\b").unwrap(),
         };
 
-        assert_eq!(rule.check_match(&Message { content: "c".to_owned(), ..Default::default() }), Ok(()));
-        assert_eq!(rule.check_match(&Message { content: "a".to_owned(), ..Default::default() }), Err("contains word a".to_owned()));
+        assert_eq!(
+            rule.check_match(&Message {
+                content: "c".to_owned(),
+                ..Default::default()
+            }),
+            Ok(())
+        );
+
+        assert_eq!(
+            rule.check_match(&Message {
+                content: "a".to_owned(),
+                ..Default::default()
+            }),
+            Err("contains word a".to_owned())
+        );
     }
 
     #[test]
     fn filter_regex() {
         let rule = Filter::Regex {
-            regexes: vec![
-                Regex::new("a|b").unwrap(),
-            ]
+            regexes: vec![Regex::new("a|b").unwrap()],
         };
 
-        assert_eq!(rule.check_match(&Message { content: "c".to_owned(), ..Default::default() }), Ok(()));
-        assert_eq!(rule.check_match(&Message { content: "a".to_owned(), ..Default::default() }), Err("matches regex a|b".to_owned()));
+        assert_eq!(
+            rule.check_match(&Message {
+                content: "c".to_owned(),
+                ..Default::default()
+            }),
+            Ok(())
+        );
+
+        assert_eq!(
+            rule.check_match(&Message {
+                content: "a".to_owned(),
+                ..Default::default()
+            }),
+            Err("matches regex a|b".to_owned())
+        );
     }
 
     #[test]
@@ -436,8 +461,21 @@ mod test {
 
         let rule = Filter::Zalgo;
 
-        assert_eq!(rule.check_match(&Message { content: "c".to_owned(), ..Default::default() }), Ok(()));
-        assert_eq!(rule.check_match(&Message { content: "t̸͈͈̒̑͛ê̷͓̜͎s̴̡͍̳͊t̴̪͙́̚".to_owned(), ..Default::default() }), Err("contains zalgo".to_owned()));
+        assert_eq!(
+            rule.check_match(&Message {
+                content: "c".to_owned(),
+                ..Default::default()
+            }),
+            Ok(())
+        );
+
+        assert_eq!(
+            rule.check_match(&Message {
+                content: "t̸͈͈̒̑͛ê̷͓̜͎s̴̡͍̳͊t̴̪͙́̚".to_owned(),
+                ..Default::default()
+            }),
+            Err("contains zalgo".to_owned())
+        );
     }
 
     #[test]
@@ -455,29 +493,33 @@ mod test {
         };
 
         let png_message = Message {
-            attachments: vec! [
-                Attachment {
-                    content_type: Some("image/png".to_owned()),
-                    ..Default::default()
-                }
-            ],
+            attachments: vec![Attachment {
+                content_type: Some("image/png".to_owned()),
+                ..Default::default()
+            }],
             ..Default::default()
         };
 
         let gif_message = Message {
-            attachments: vec! [
-                Attachment {
-                    content_type: Some("image/gif".to_owned()),
-                    ..Default::default()
-                }
-            ],
+            attachments: vec![Attachment {
+                content_type: Some("image/gif".to_owned()),
+                ..Default::default()
+            }],
             ..Default::default()
         };
 
         assert_eq!(allow_rule.check_match(&png_message), Ok(()));
-        assert_eq!(allow_rule.check_match(&gif_message), Err("contains unallowed content type image/gif".to_owned()));
 
-        assert_eq!(deny_rule.check_match(&png_message), Err("contains denied content type image/png".to_owned()));
+        assert_eq!(
+            allow_rule.check_match(&gif_message),
+            Err("contains unallowed content type image/gif".to_owned())
+        );
+
+        assert_eq!(
+            deny_rule.check_match(&png_message),
+            Err("contains denied content type image/png".to_owned())
+        );
+
         assert_eq!(deny_rule.check_match(&gif_message), Ok(()));
     }
 
@@ -496,17 +538,19 @@ mod test {
         };
 
         let unknown_message = Message {
-            attachments: vec! [
-                Attachment {
-                    content_type: None,
-                    ..Default::default()
-                }
-            ],
+            attachments: vec![Attachment {
+                content_type: None,
+                ..Default::default()
+            }],
             ..Default::default()
         };
 
         assert_eq!(allow_rule.check_match(&unknown_message), Ok(()));
-        assert_eq!(deny_rule.check_match(&unknown_message), Err("unknown content type for attachment".to_owned()));
+
+        assert_eq!(
+            deny_rule.check_match(&unknown_message),
+            Err("unknown content type for attachment".to_owned())
+        );
     }
 
     #[test]
@@ -534,9 +578,17 @@ mod test {
         };
 
         assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
-        assert_eq!(allow_rule.check_match(&not_roblox_message), Err("contains unallowed invite asdf".to_owned()));
-        
-        assert_eq!(deny_rule.check_match(&roblox_message), Err("contains denied invite roblox".to_owned()));
+
+        assert_eq!(
+            allow_rule.check_match(&not_roblox_message),
+            Err("contains unallowed invite asdf".to_owned())
+        );
+
+        assert_eq!(
+            deny_rule.check_match(&roblox_message),
+            Err("contains denied invite roblox".to_owned())
+        );
+
         assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
     }
 
@@ -565,9 +617,17 @@ mod test {
         };
 
         assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
-        assert_eq!(allow_rule.check_match(&not_roblox_message), Err("contains unallowed domain discord.com".to_owned()));
-        
-        assert_eq!(deny_rule.check_match(&roblox_message), Err("contains denied domain roblox.com".to_owned()));
+
+        assert_eq!(
+            allow_rule.check_match(&not_roblox_message),
+            Err("contains unallowed domain discord.com".to_owned())
+        );
+
+        assert_eq!(
+            deny_rule.check_match(&roblox_message),
+            Err("contains denied domain roblox.com".to_owned())
+        );
+
         assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
     }
 
@@ -584,31 +644,35 @@ mod test {
         };
 
         let zero_sticker = Message {
-            sticker_items: Some(vec![
-                MessageStickerItem {
-                    id: Snowflake::new(0),
-                    name: "test".to_owned(),
-                    format_type: discordant::types::MessageStickerFormat::Png,
-                }
-            ]),
+            sticker_items: Some(vec![MessageStickerItem {
+                id: Snowflake::new(0),
+                name: "test".to_owned(),
+                format_type: discordant::types::MessageStickerFormat::Png,
+            }]),
             ..Default::default()
         };
 
         let non_zero_sticker = Message {
-            sticker_items: Some(vec![
-                MessageStickerItem {
-                    id: Snowflake::new(1),
-                    name: "test".to_owned(),
-                    format_type: discordant::types::MessageStickerFormat::Png,
-                }
-            ]),
+            sticker_items: Some(vec![MessageStickerItem {
+                id: Snowflake::new(1),
+                name: "test".to_owned(),
+                format_type: discordant::types::MessageStickerFormat::Png,
+            }]),
             ..Default::default()
         };
 
         assert_eq!(allow_rule.check_match(&zero_sticker), Ok(()));
-        assert_eq!(allow_rule.check_match(&non_zero_sticker), Err("contains unallowed sticker 1".to_owned()));
-        
-        assert_eq!(deny_rule.check_match(&zero_sticker), Err("contains denied sticker 0".to_owned()));
+
+        assert_eq!(
+            allow_rule.check_match(&non_zero_sticker),
+            Err("contains unallowed sticker 1".to_owned())
+        );
+
+        assert_eq!(
+            deny_rule.check_match(&zero_sticker),
+            Err("contains denied sticker 0".to_owned())
+        );
+
         assert_eq!(deny_rule.check_match(&non_zero_sticker), Ok(()));
     }
 
@@ -622,7 +686,7 @@ mod test {
         "#;
 
         let rule: Filter = serde_json::from_str(&json).expect("couldn't deserialize Filter");
-        
+
         if let Filter::Words { words } = rule {
             assert_eq!(words.to_string(), "\\b(a|b|a\\(b\\))\\b");
         } else {
