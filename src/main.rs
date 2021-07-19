@@ -86,13 +86,13 @@ where
             pattern.push_str(")\\b");
 
             let regex = Regex::new(&pattern);
-            if regex.is_err() {
-                Err(serde::de::Error::custom(format!(
+
+            match regex {
+                Ok(regex) => Ok(regex),
+                Err(err) => Err(serde::de::Error::custom(format!(
                     "unable to construct regex: {}",
-                    regex.unwrap_err()
-                )))
-            } else {
-                Ok(regex.unwrap())
+                    err
+                ))),
             }
         }
     }
@@ -211,14 +211,7 @@ impl Filter {
                     return Err("unknown content type for attachment".to_owned());
                 }
 
-                let mut attachment_types = message.attachments.iter().filter_map(|a| {
-                    if let Some(content_type) = &a.content_type {
-                        Some(content_type.as_str())
-                    } else {
-                        None
-                    }
-                });
-
+                let mut attachment_types = message.attachments.iter().filter_map(|a|  a.content_type.as_deref());
                 filter_values(mode, "content type", &mut attachment_types, types)
             }
             Filter::Invite { mode, invites } => {
@@ -277,14 +270,12 @@ struct FilterConfig {
 
 impl FilterConfig {
     fn filter_message(&self, message: &Message) -> FilterResult {
-        if self.include_channels.len() == 0 {
-            if self
-                .exclude_channels
-                .iter()
-                .any(|c| message.channel_id == *c)
-            {
-                return Ok(());
-            }
+        if self.include_channels.is_empty() && self
+            .exclude_channels
+            .iter()
+            .any(|c| message.channel_id == *c)
+        {
+            return Ok(());
         }
 
         if !self
@@ -345,7 +336,7 @@ async fn main() {
 
     let config_path = std::env::args()
         .nth(1)
-        .unwrap_or("chrysanthemum.cfg.json".to_owned());
+        .unwrap_or_else(|| "chrysanthemum.cfg.json".to_owned());
 
     // Ugly: Strip out single-line comments from the source. serde_json doesn't
     // support comments, but config files kind of need them.
@@ -368,12 +359,9 @@ async fn main() {
     loop {
         let event = gateway.next_event().await;
 
-        if event.is_err() {
-            log::error!("Error: {:?}", event.unwrap_err());
-            break;
-        } else {
-            match event.unwrap() {
-                Event::MessageCreate(message) => {
+        match event {
+            Ok(event) => {
+                if let Event::MessageCreate(message) = event {
                     let cfg = cfg.clone();
                     let client = client.clone();
                     tokio::spawn(async move {
@@ -397,7 +385,9 @@ async fn main() {
                         }
                     });
                 }
-                _ => {}
+            },
+            Err(err) => {
+                log::error!("Error: {:?}", err);
             }
         }
     }
