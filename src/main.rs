@@ -300,7 +300,13 @@ fn exceeds_spam_thresholds(
         // Start with a value of 1 for matching_duplicates because the current spam record
         // is always a duplicate of itself.
         .fold(
-            (current_record.emoji, current_record.links, current_record.attachments, current_record.spoilers, 1),
+            (
+                current_record.emoji,
+                current_record.links,
+                current_record.attachments,
+                current_record.spoilers,
+                1,
+            ),
             |(total_emoji, total_links, total_attachments, total_spoilers, total_duplicates),
              record| {
                 (
@@ -308,12 +314,24 @@ fn exceeds_spam_thresholds(
                     total_links + record.links,
                     total_attachments + record.attachments,
                     total_spoilers + record.spoilers,
-                    total_duplicates + if record.content == current_record.content { 1 } else { 0 },
+                    total_duplicates
+                        + if record.content == current_record.content {
+                            1
+                        } else {
+                            0
+                        },
                 )
             },
         );
 
-    log::trace!("Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} duplicates", emoji_sum, link_sum, attachment_sum, spoiler_sum, matching_duplicates);
+    log::trace!(
+        "Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} duplicates",
+        emoji_sum,
+        link_sum,
+        attachment_sum,
+        spoiler_sum,
+        matching_duplicates
+    );
 
     if config.emoji.is_some() && emoji_sum > config.emoji.unwrap() && current_record.emoji > 0 {
         Err("sent too many emoji".to_owned())
