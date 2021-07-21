@@ -587,6 +587,14 @@ async fn main() {
             }
         }
     }
+
+    for (_, guild_config) in &cfg.guilds {
+        if let Some(notification_channel) = guild_config.notification_channel {
+            client.create_message(notification_channel, CreateMessagePayload {
+                content: ":chart_with_downwards_trend: Chrysanthemum offline".to_owned(),
+            }).await.unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
