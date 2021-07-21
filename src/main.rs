@@ -14,6 +14,8 @@ use tokio::sync::RwLock;
 static ZALGO_REGEX: OnceCell<Regex> = OnceCell::new();
 static INVITE_REGEX: OnceCell<Regex> = OnceCell::new();
 static LINK_REGEX: OnceCell<Regex> = OnceCell::new();
+static SPOILER_REGEX: OnceCell<Regex> = OnceCell::new();
+static EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -273,16 +275,20 @@ struct SpamRecord {
 
 impl SpamRecord {
     fn from_message(message: &Message) -> SpamRecord {
+        let spoilers = SPOILER_REGEX.get().unwrap().find_iter(&message.content).count();
+        let emoji = EMOJI_REGEX.get().unwrap().find_iter(&message.content).count();
+        let links = LINK_REGEX.get().unwrap().find_iter(&message.content).count();
+
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
             // dropped while we still need this.
             content: message.content.clone(),
-            emoji: 0,
-            links: 0,
+            emoji: emoji as u8,
+            links: links as u8,
             // `as` cast is safe for our purposes. If the message has more than
             // 255 attachments, `as` will give us a u8 with a value of 255.
             attachments: message.attachments.len() as u8,
-            spoilers: 0,
+            spoilers: spoilers as u8,
             sent_at: OffsetDateTime::parse(&message.timestamp, time::Format::Rfc3339).unwrap(),
         }
     }
@@ -415,6 +421,8 @@ fn init_globals() {
         .set(Regex::new("\\u0303|\\u035F|\\u034F|\\u0327|\\u031F|\\u0353|\\u032F|\\u0318|\\u0353|\\u0359|\\u0354").unwrap());
     let _ = INVITE_REGEX.set(Regex::new("discord.gg/(\\w+)").unwrap());
     let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
+    let _ = SPOILER_REGEX.set(Regex::new("||[^|]*||").unwrap());
+    let _ = EMOJI_REGEX.set(Regex::new("\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}|<a?:[^:]+:\\d+>").unwrap());
 }
 
 #[derive(Debug)]
