@@ -369,6 +369,7 @@ struct FilterConfig {
     include_channels: Vec<Snowflake>,
     exclude_roles: Vec<Snowflake>,
     actions: Vec<Action>,
+    #[serde(default)]
     include_bots: bool,
 }
 
@@ -416,6 +417,7 @@ impl FilterConfig {
 #[derive(Deserialize, Debug)]
 struct GuildConfig {
     filters: Vec<FilterConfig>,
+    notification_channel: Option<Snowflake>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -473,6 +475,15 @@ async fn main() {
     let mut gateway = connect_to_gateway(&gateway_info.url, discord_token, intents)
         .await
         .expect("Could not connect to gateway");
+    
+    for (_, guild_config) in &cfg.guilds {
+        if let Some(notification_channel) = guild_config.notification_channel {
+            client.create_message(notification_channel, CreateMessagePayload {
+                content: ":chart_with_upwards_trend: Chrysanthemum online".to_owned(),
+            }).await.unwrap();
+        }
+    }
+    
     loop {
         let event = gateway.next_event().await;
 
