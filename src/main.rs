@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -483,8 +484,20 @@ async fn main() {
             }).await.unwrap();
         }
     }
+
+    let running = Arc::new(AtomicBool::new(true));
+    let ctrl_c_running = running.clone();
+    ctrlc::set_handler(move || {
+        ctrl_c_running.store(false, Ordering::SeqCst);
+    }).expect("Couldn't set Ctrl-C handler");
     
     loop {
+        if !running.load(Ordering::SeqCst) {
+            log::debug!("Termination requested, shutting down loop");
+            gateway.close().await;
+            break;
+        }
+
         let event = gateway.next_event().await;
 
         match event {
