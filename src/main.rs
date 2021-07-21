@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use discordant::gateway::{connect_to_gateway, Event, Intents};
 use discordant::http::{Client, CreateMessagePayload, DiscordHttpError};
@@ -6,6 +8,8 @@ use discordant::types::{Message, Snowflake};
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use serde::Deserialize;
+use time::OffsetDateTime;
+use tokio::sync::RwLock;
 
 static ZALGO_REGEX: OnceCell<Regex> = OnceCell::new();
 static INVITE_REGEX: OnceCell<Regex> = OnceCell::new();
@@ -247,19 +251,95 @@ impl Filter {
     }
 }
 
-#[derive(Deserialize, Debug)]
-struct SpamThreshold {
-    count: u8,
+#[derive(Deserialize, Debug, Default)]
+struct SpamConfig {
+    emoji: Option<u8>,
+    duplicates: Option<u8>,
+    links: Option<u8>,
+    attachments: Option<u8>,
+    spoilers: Option<u8>,
     interval: u16,
 }
 
-#[derive(Deserialize, Debug, Default)]
-struct SpamConfig {
-    emoji: Option<SpamThreshold>,
-    duplicates: Option<SpamThreshold>,
-    links: Option<SpamThreshold>,
-    attachments: Option<SpamThreshold>,
-    spoilers: Option<SpamThreshold>,
+#[derive(Debug)]
+struct SpamRecord {
+    content: String,
+    emoji: u8,
+    links: u8,
+    attachments: u8,
+    spoilers: u8,
+    sent_at: OffsetDateTime,
+}
+
+impl SpamRecord {
+    fn from_message(message: &Message) -> SpamRecord {
+        SpamRecord {
+            // Unfortunately, this clone is necessary, because `message` will be
+            // dropped while we still need this.
+            content: message.content.clone(),
+            emoji: 0,
+            links: 0,
+            // `as` cast is safe for our purposes. If the message has more than
+            // 255 attachments, `as` will give us a u8 with a value of 255.
+            attachments: message.attachments.len() as u8,
+            spoilers: 0,
+            sent_at: OffsetDateTime::parse(&message.timestamp, time::Format::Rfc3339).unwrap(),
+        }
+    }
+}
+
+type SpamHistory = HashMap<Snowflake, Arc<Mutex<VecDeque<SpamRecord>>>>;
+
+fn exceeds_spam_thresholds(
+    history: &VecDeque<SpamRecord>,
+    current_record: &SpamRecord,
+    config: &SpamConfig,
+) -> FilterResult {
+    let (emoji_sum, link_sum, attachment_sum, spoiler_sum, matching_duplicates) = history
+        .iter()
+        // Start with a value of 1 for matching_duplicates because the current spam record
+        // is always a duplicate of itself.
+        .fold(
+            (current_record.emoji, current_record.links, current_record.attachments, current_record.spoilers, 1),
+            |(total_emoji, total_links, total_attachments, total_spoilers, total_duplicates),
+             record| {
+                (
+                    total_emoji + record.emoji,
+                    total_links + record.links,
+                    total_attachments + record.attachments,
+                    total_spoilers + record.spoilers,
+                    total_duplicates + if record.content == current_record.content { 1 } else { 0 },
+                )
+            },
+        );
+
+    let emoji_sum = emoji_sum + current_record.emoji;
+    let link_sum = link_sum + current_record.links;
+    let attachment_sum = attachment_sum + current_record.attachments;
+    let spoiler_sum = spoiler_sum + current_record.spoilers;
+
+    log::trace!("Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} duplicates", emoji_sum, link_sum, attachment_sum, spoiler_sum, matching_duplicates);
+
+    if config.emoji.is_some() && emoji_sum > config.emoji.unwrap() && current_record.emoji > 0 {
+        Err("sent too many emoji".to_owned())
+    } else if config.links.is_some() && link_sum > config.links.unwrap() && current_record.links > 0
+    {
+        Err("sent too many links".to_owned())
+    } else if config.attachments.is_some()
+        && attachment_sum > config.attachments.unwrap()
+        && current_record.attachments > 0
+    {
+        Err("sent too many attachments".to_owned())
+    } else if config.spoilers.is_some()
+        && spoiler_sum > config.spoilers.unwrap()
+        && current_record.spoilers > 0
+    {
+        Err("sent too many spoilers".to_owned())
+    } else if config.duplicates.is_some() && matching_duplicates > config.duplicates.unwrap() {
+        Err("sent too many duplicate messages".to_owned())
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -329,6 +409,11 @@ fn init_globals() {
     let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
 }
 
+#[derive(Debug)]
+struct BotState {
+    spam: SpamHistory,
+}
+
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
@@ -357,6 +442,7 @@ async fn main() {
 
     let client = std::sync::Arc::new(client);
     let cfg = std::sync::Arc::new(cfg);
+    let spam_history = Arc::new(RwLock::new(SpamHistory::new()));
 
     let mut gateway = connect_to_gateway(&gateway_info.url, discord_token, intents)
         .await
@@ -369,6 +455,7 @@ async fn main() {
                 if let Event::MessageCreate(message) = event {
                     let cfg = cfg.clone();
                     let client = client.clone();
+                    let spam_history = spam_history.clone();
                     tokio::spawn(async move {
                         // guild_id will always be set in this case, because we
                         // will only ever receive guild messages via our intent.
@@ -376,7 +463,69 @@ async fn main() {
                             for filter in &guild_config.filters {
                                 let filter_result = filter.filter_message(&message);
 
-                                if let Err(reason) = filter_result {
+                                let new_spam_record = SpamRecord::from_message(&message);
+                                let author_spam_history = {
+                                    let read_history = spam_history.read().await;
+                                    // This is tricky: We need to release the read lock, acquire a write lock, and
+                                    // then insert the new history entry into the map.
+                                    if !read_history.contains_key(&message.author.id) {
+                                        drop(read_history);
+
+                                        let new_history = Arc::new(Mutex::new(VecDeque::new()));
+                                        let mut write_history = spam_history.write().await;
+                                        write_history
+                                            .insert(message.author.id, new_history.clone());
+                                        drop(write_history);
+                                        new_history
+                                    } else {
+                                        read_history.get(&message.author.id).unwrap().clone()
+                                    }
+                                };
+
+                                let spam_result = if filter_result.is_err() {
+                                    Ok(())
+                                } else {
+                                    let mut spam_history = author_spam_history.lock().unwrap();
+
+                                    let interval = Duration::from_secs(filter.spam.interval as u64);
+                                    let now = OffsetDateTime::now_utc();
+                                    let mut cleared_count = 0;
+                                    loop {
+                                        match spam_history.front() {
+                                            Some(front) => {
+                                                if now - front.sent_at > interval {
+                                                    spam_history.pop_front();
+                                                    cleared_count += 1;
+                                                } else {
+                                                    break;
+                                                }
+                                            }
+                                            None => break,
+                                        }
+                                    }
+
+                                    log::trace!(
+                                        "Cleared {} spam records for user {}",
+                                        cleared_count,
+                                        message.author.id
+                                    );
+
+                                    let result = exceeds_spam_thresholds(
+                                        &spam_history,
+                                        &new_spam_record,
+                                        &filter.spam,
+                                    );
+                                    spam_history.push_back(new_spam_record);
+                                    result
+                                };
+
+                                let result = if filter_result.is_ok() {
+                                    spam_result
+                                } else {
+                                    filter_result
+                                };
+
+                                if let Err(reason) = result {
                                     for action in &filter.actions {
                                         action
                                             .do_action(&reason, &message, &client)
@@ -393,6 +542,7 @@ async fn main() {
             }
             Err(err) => {
                 log::error!("Error: {:?}", err);
+                break;
             }
         }
     }
