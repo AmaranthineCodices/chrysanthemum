@@ -313,11 +313,6 @@ fn exceeds_spam_thresholds(
             },
         );
 
-    let emoji_sum = emoji_sum + current_record.emoji;
-    let link_sum = link_sum + current_record.links;
-    let attachment_sum = attachment_sum + current_record.attachments;
-    let spoiler_sum = spoiler_sum + current_record.spoilers;
-
     log::trace!("Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} duplicates", emoji_sum, link_sum, attachment_sum, spoiler_sum, matching_duplicates);
 
     if config.emoji.is_some() && emoji_sum > config.emoji.unwrap() && current_record.emoji > 0 {
