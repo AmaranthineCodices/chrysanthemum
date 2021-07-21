@@ -314,12 +314,7 @@ fn exceeds_spam_thresholds(
                     total_links + record.links,
                     total_attachments + record.attachments,
                     total_spoilers + record.spoilers,
-                    total_duplicates
-                        + if record.content == current_record.content {
-                            1
-                        } else {
-                            0
-                        },
+                    total_duplicates + (record.content == current_record.content) as u8,
                 )
             },
         );
