@@ -150,6 +150,13 @@ enum Filter {
     },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum FilterResult {
+    Ok,
+    Pass,
+    Failed(String),
+}
+
 fn filter_values<T, V, I>(
     mode: &FilterMode,
     context: &str,
@@ -167,45 +174,43 @@ where
             // sometimes pass Vec<String> as filter_values, where T is &str -
             // contains isn't smart enough to handle this case.
             .find(|v| !filter_values.iter().any(|f| f == v))
-            .map(|v| Err(format!("contains unallowed {} {}", context, v))),
+            .map(|v| FilterResult::Failed(format!("contains unallowed {} {}", context, v))),
         FilterMode::DenyList => values
             .find(|v| filter_values.iter().any(|f| f == v))
-            .map(|v| Err(format!("contains denied {} {}", context, v))),
+            .map(|v| FilterResult::Failed(format!("contains denied {} {}", context, v))),
     };
 
-    result.unwrap_or(Ok(()))
+    result.unwrap_or(FilterResult::Ok)
 }
-
-type FilterResult = Result<(), String>;
 
 impl Filter {
     fn check_match(&self, message: &Message) -> FilterResult {
         match self {
             Filter::Words { words } => {
                 if let Some(captures) = words.captures(&message.content) {
-                    Err(format!(
+                    FilterResult::Failed(format!(
                         "contains word {}",
                         captures.get(1).unwrap().as_str()
                     ))
                 } else {
-                    Ok(())
+                    FilterResult::Ok
                 }
             }
             Filter::Regex { regexes } => {
                 for regex in regexes {
                     if regex.is_match(&message.content) {
-                        return Err(format!("matches regex {}", regex));
+                        return FilterResult::Failed(format!("matches regex {}", regex));
                     }
                 }
 
-                Ok(())
+                FilterResult::Ok
             }
             Filter::Zalgo => {
                 let zalgo_regex = ZALGO_REGEX.get().unwrap();
                 if zalgo_regex.is_match(&message.content) {
-                    Err("contains zalgo".to_owned())
+                    FilterResult::Failed("contains zalgo".to_owned())
                 } else {
-                    Ok(())
+                    FilterResult::Ok
                 }
             }
             Filter::MimeType {
@@ -214,7 +219,7 @@ impl Filter {
                 allow_unknown,
             } => {
                 if message.attachments.iter().any(|a| a.content_type.is_none()) && !allow_unknown {
-                    return Err("unknown content type for attachment".to_owned());
+                    return FilterResult::Failed("unknown content type for attachment".to_owned());
                 }
 
                 let mut attachment_types = message
@@ -246,7 +251,7 @@ impl Filter {
                         stickers,
                     )
                 } else {
-                    Ok(())
+                    FilterResult::Ok
                 }
             }
         }
@@ -335,24 +340,24 @@ fn exceeds_spam_thresholds(
     );
 
     if config.emoji.is_some() && emoji_sum > config.emoji.unwrap() && current_record.emoji > 0 {
-        Err("sent too many emoji".to_owned())
+        FilterResult::Failed("sent too many emoji".to_owned())
     } else if config.links.is_some() && link_sum > config.links.unwrap() && current_record.links > 0
     {
-        Err("sent too many links".to_owned())
+        FilterResult::Failed("sent too many links".to_owned())
     } else if config.attachments.is_some()
         && attachment_sum > config.attachments.unwrap()
         && current_record.attachments > 0
     {
-        Err("sent too many attachments".to_owned())
+        FilterResult::Failed("sent too many attachments".to_owned())
     } else if config.spoilers.is_some()
         && spoiler_sum > config.spoilers.unwrap()
         && current_record.spoilers > 0
     {
-        Err("sent too many spoilers".to_owned())
+        FilterResult::Failed("sent too many spoilers".to_owned())
     } else if config.duplicates.is_some() && matching_duplicates > config.duplicates.unwrap() {
-        Err("sent too many duplicate messages".to_owned())
+        FilterResult::Failed("sent too many duplicate messages".to_owned())
     } else {
-        Ok(())
+        FilterResult::Ok
     }
 }
 
@@ -374,7 +379,7 @@ impl FilterConfig {
                 .iter()
                 .any(|c| message.channel_id == *c)
         {
-            return Ok(());
+            return FilterResult::Pass;
         }
 
         if !self
@@ -382,7 +387,7 @@ impl FilterConfig {
             .iter()
             .any(|c| message.channel_id == *c)
         {
-            return Ok(());
+            return FilterResult::Pass;
         }
 
         if let Some(member_info) = &message.member {
@@ -391,15 +396,15 @@ impl FilterConfig {
                 .iter()
                 .any(|r| member_info.roles.contains(r))
             {
-                return Ok(());
+                return FilterResult::Pass;
             }
         }
 
         self.rules
             .iter()
             .map(|f| f.check_match(&message))
-            .find(|r| r.is_err())
-            .unwrap_or(Ok(()))
+            .find(|r| matches!(r, FilterResult::Failed(_)))
+            .unwrap_or(FilterResult::Ok)
     }
 }
 
@@ -479,6 +484,10 @@ async fn main() {
                             for filter in &guild_config.filters {
                                 let filter_result = filter.filter_message(&message);
 
+                                if matches!(filter_result, FilterResult::Pass) {
+                                    continue
+                                }
+
                                 let new_spam_record = SpamRecord::from_message(&message);
                                 let author_spam_history = {
                                     let read_history = spam_history.read().await;
@@ -498,8 +507,8 @@ async fn main() {
                                     }
                                 };
 
-                                let spam_result = if filter_result.is_err() {
-                                    Ok(())
+                                let spam_result = if matches!(filter_result, FilterResult::Failed(_)) {
+                                    FilterResult::Ok
                                 } else {
                                     let mut spam_history = author_spam_history.lock().unwrap();
 
@@ -535,13 +544,13 @@ async fn main() {
                                     result
                                 };
 
-                                let result = if filter_result.is_ok() {
+                                let result = if matches!(filter_result, FilterResult::Ok) {
                                     spam_result
                                 } else {
                                     filter_result
                                 };
 
-                                if let Err(reason) = result {
+                                if let FilterResult::Failed(reason) = result {
                                     for action in &filter.actions {
                                         action
                                             .do_action(&reason, &message, &client)
@@ -581,7 +590,7 @@ mod test {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
-            Ok(())
+            FilterResult::Ok
         );
 
         assert_eq!(
@@ -589,7 +598,7 @@ mod test {
                 content: "a".to_owned(),
                 ..Default::default()
             }),
-            Err("contains word a".to_owned())
+            FilterResult::Failed("contains word a".to_owned())
         );
     }
 
@@ -604,7 +613,7 @@ mod test {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
-            Ok(())
+            FilterResult::Ok
         );
 
         assert_eq!(
@@ -612,7 +621,7 @@ mod test {
                 content: "a".to_owned(),
                 ..Default::default()
             }),
-            Err("matches regex a|b".to_owned())
+            FilterResult::Failed("matches regex a|b".to_owned())
         );
     }
 
@@ -627,7 +636,7 @@ mod test {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
-            Ok(())
+            FilterResult::Ok
         );
 
         assert_eq!(
@@ -635,7 +644,7 @@ mod test {
                 content: "t̸͈͈̒̑͛ê̷͓̜͎s̴̡͍̳͊t̴̪͙́̚".to_owned(),
                 ..Default::default()
             }),
-            Err("contains zalgo".to_owned())
+            FilterResult::Failed("contains zalgo".to_owned())
         );
     }
 
@@ -669,19 +678,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&png_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&png_message), FilterResult::Ok);
 
         assert_eq!(
             allow_rule.check_match(&gif_message),
-            Err("contains unallowed content type image/gif".to_owned())
+            FilterResult::Failed("contains unallowed content type image/gif".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&png_message),
-            Err("contains denied content type image/png".to_owned())
+            FilterResult::Failed("contains denied content type image/png".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&gif_message), Ok(()));
+        assert_eq!(deny_rule.check_match(&gif_message), FilterResult::Ok);
     }
 
     #[test]
@@ -706,11 +715,11 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&unknown_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&unknown_message), FilterResult::Ok);
 
         assert_eq!(
             deny_rule.check_match(&unknown_message),
-            Err("unknown content type for attachment".to_owned())
+            FilterResult::Failed("unknown content type for attachment".to_owned())
         );
     }
 
@@ -738,19 +747,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&roblox_message), FilterResult::Ok);
 
         assert_eq!(
             allow_rule.check_match(&not_roblox_message),
-            Err("contains unallowed invite asdf".to_owned())
+            FilterResult::Failed("contains unallowed invite asdf".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&roblox_message),
-            Err("contains denied invite roblox".to_owned())
+            FilterResult::Failed("contains denied invite roblox".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
+        assert_eq!(deny_rule.check_match(&not_roblox_message), FilterResult::Ok);
     }
 
     #[test]
@@ -777,19 +786,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
+        assert_eq!(allow_rule.check_match(&roblox_message), FilterResult::Ok);
 
         assert_eq!(
             allow_rule.check_match(&not_roblox_message),
-            Err("contains unallowed domain discord.com".to_owned())
+            FilterResult::Failed("contains unallowed domain discord.com".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&roblox_message),
-            Err("contains denied domain roblox.com".to_owned())
+            FilterResult::Failed("contains denied domain roblox.com".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
+        assert_eq!(deny_rule.check_match(&not_roblox_message), FilterResult::Ok);
     }
 
     #[test]
@@ -822,19 +831,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&zero_sticker), Ok(()));
+        assert_eq!(allow_rule.check_match(&zero_sticker), FilterResult::Ok);
 
         assert_eq!(
             allow_rule.check_match(&non_zero_sticker),
-            Err("contains unallowed sticker 1".to_owned())
+            FilterResult::Failed("contains unallowed sticker 1".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&zero_sticker),
-            Err("contains denied sticker 0".to_owned())
+            FilterResult::Failed("contains denied sticker 0".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&non_zero_sticker), Ok(()));
+        assert_eq!(deny_rule.check_match(&non_zero_sticker), FilterResult::Ok);
     }
 
     #[test]
@@ -872,7 +881,7 @@ mod test {
         };
 
         let result = cfg.filter_message(&message);
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, FilterResult::Pass);
     }
 
     #[test]
@@ -898,10 +907,10 @@ mod test {
         };
 
         let result_0 = cfg.filter_message(&message_0);
-        assert_eq!(result_0, Ok(()));
+        assert_eq!(result_0, FilterResult::Pass);
 
         let result_1 = cfg.filter_message(&message_1);
-        assert_eq!(result_1, Err("contains word a".to_owned()));
+        assert_eq!(result_1, FilterResult::Failed("contains word a".to_owned()));
     }
 
     #[test]
@@ -922,7 +931,7 @@ mod test {
         };
 
         let result = cfg.filter_message(&message);
-        assert_eq!(result, Err("contains word a".to_owned()));
+        assert_eq!(result, FilterResult::Failed("contains word a".to_owned()));
     }
 
     #[test]
@@ -945,6 +954,6 @@ mod test {
         };
 
         let result = cfg.filter_message(&message);
-        assert_eq!(result, Ok(()));
+        assert_eq!(result, FilterResult::Pass);
     }
 }
