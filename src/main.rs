@@ -369,10 +369,15 @@ struct FilterConfig {
     include_channels: Vec<Snowflake>,
     exclude_roles: Vec<Snowflake>,
     actions: Vec<Action>,
+    include_bots: bool,
 }
 
 impl FilterConfig {
     fn filter_message(&self, message: &Message) -> FilterResult {
+        if !self.include_bots && message.author.bot.unwrap_or(false) {
+            return FilterResult::Pass;
+        }
+
         if self.include_channels.is_empty()
             && self
                 .exclude_channels
@@ -575,7 +580,7 @@ async fn main() {
 
 #[cfg(test)]
 mod test {
-    use discordant::types::{Attachment, MessageGuildMemberInfo, MessageStickerItem};
+    use discordant::types::{Attachment, MessageGuildMemberInfo, MessageStickerItem, User};
 
     use super::*;
 
@@ -950,6 +955,29 @@ mod test {
                 roles: vec![Snowflake::new(0)],
                 ..Default::default()
             }),
+            ..Default::default()
+        };
+
+        let result = cfg.filter_message(&message);
+        assert_eq!(result, FilterResult::Pass);
+    }
+
+    #[test]
+    fn skip_bots() {
+        let cfg = FilterConfig {
+            rules: vec![Filter::Words {
+                words: Regex::new("\\b(a)\\b").unwrap(),
+            }],
+            include_bots: false,
+            ..Default::default()
+        };
+
+        let message = Message {
+            content: "a".to_owned(),
+            author: User {
+                bot: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
