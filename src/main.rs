@@ -305,16 +305,16 @@ fn exceeds_spam_thresholds(
                 current_record.links,
                 current_record.attachments,
                 current_record.spoilers,
-                1,
+                1u8,
             ),
             |(total_emoji, total_links, total_attachments, total_spoilers, total_duplicates),
              record| {
                 (
-                    total_emoji + record.emoji,
-                    total_links + record.links,
-                    total_attachments + record.attachments,
-                    total_spoilers + record.spoilers,
-                    total_duplicates + (record.content == current_record.content) as u8,
+                    total_emoji.saturating_add(record.emoji),
+                    total_links.saturating_add(record.links),
+                    total_attachments.saturating_add(record.attachments),
+                    total_spoilers.saturating_add(record.spoilers),
+                    total_duplicates.saturating_add((record.content == current_record.content) as u8),
                 )
             },
         );
