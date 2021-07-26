@@ -281,9 +281,21 @@ struct SpamRecord {
 
 impl SpamRecord {
     fn from_message(message: &Message) -> SpamRecord {
-        let spoilers = SPOILER_REGEX.get().unwrap().find_iter(&message.content).count();
-        let emoji = EMOJI_REGEX.get().unwrap().find_iter(&message.content).count();
-        let links = LINK_REGEX.get().unwrap().find_iter(&message.content).count();
+        let spoilers = SPOILER_REGEX
+            .get()
+            .unwrap()
+            .find_iter(&message.content)
+            .count();
+        let emoji = EMOJI_REGEX
+            .get()
+            .unwrap()
+            .find_iter(&message.content)
+            .count();
+        let links = LINK_REGEX
+            .get()
+            .unwrap()
+            .find_iter(&message.content)
+            .count();
 
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
@@ -326,7 +338,8 @@ fn exceeds_spam_thresholds(
                     total_links.saturating_add(record.links),
                     total_attachments.saturating_add(record.attachments),
                     total_spoilers.saturating_add(record.spoilers),
-                    total_duplicates.saturating_add((record.content == current_record.content) as u8),
+                    total_duplicates
+                        .saturating_add((record.content == current_record.content) as u8),
                 )
             },
         );
@@ -416,9 +429,16 @@ impl FilterConfig {
 }
 
 #[derive(Deserialize, Debug)]
+struct SlashCommandPermissions {
+    id: Snowflake,
+}
+
+#[derive(Deserialize, Debug)]
 struct GuildConfig {
     filters: Vec<FilterConfig>,
     notification_channel: Option<Snowflake>,
+    enable_slash_commands: bool,
+    slash_command_permissions: Vec<SlashCommandPermissions>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -435,7 +455,78 @@ fn init_globals() {
     let _ = INVITE_REGEX.set(Regex::new("discord.gg/(\\w+)").unwrap());
     let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
     let _ = SPOILER_REGEX.set(Regex::new("||[^|]*||").unwrap());
-    let _ = EMOJI_REGEX.set(Regex::new("\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}|<a?:[^:]+:\\d+>").unwrap());
+    let _ = EMOJI_REGEX.set(
+        Regex::new(
+            "\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}|<a?:[^:]+:\\d+>",
+        )
+        .unwrap(),
+    );
+}
+
+async fn create_slash_commands(app_id: Snowflake, config: &Config, client: &Client) {
+    for (guild_id, guild) in &config.guilds {
+        if !guild.enable_slash_commands {
+            continue;
+        }
+
+        if guild.slash_command_permissions.len() == 0 {
+            log::error!("Guild {} has enabled slash commands, but no roles have access to it. Slash commands will be disabled in this server.", guild_id);
+            continue;
+        }
+
+        let payload = discordant::http::CreateApplicationCommandPayload {
+            name: "chrysanthemum".to_owned(),
+            description: "Interact with Chrysanthemum, a message filtration bot.".to_owned(),
+            options: Some(vec![
+                discordant::types::ApplicationCommandOption {
+                    ty: discordant::types::ApplicationCommandOptionType::Subcommand {
+                        options: Some(vec![]),
+                    },
+                    name: "stats".to_owned(),
+                    description: "See stats collected in this guild.".to_owned(),
+                    required: None,
+                },
+                discordant::types::ApplicationCommandOption {
+                    ty: discordant::types::ApplicationCommandOptionType::Subcommand {
+                        options: Some(vec![discordant::types::ApplicationCommandOption {
+                            ty: discordant::types::ApplicationCommandOptionType::String {
+                                choices: None,
+                            },
+                            name: "message".to_owned(),
+                            description: "The message to test.".to_owned(),
+                            required: Some(true),
+                        }]),
+                    },
+                    name: "test".to_owned(),
+                    description: "Test a message to see if it will be filtered.".to_owned(),
+                    required: None,
+                },
+            ]),
+            default_permission: false,
+        };
+
+        let created_command = client
+            .create_guild_application_command(app_id, *guild_id, payload)
+            .await
+            .unwrap();
+        client
+            .edit_application_command_permissions(
+                app_id,
+                *guild_id,
+                created_command.id,
+                guild
+                    .slash_command_permissions
+                    .iter()
+                    .map(|s| discordant::types::ApplicationCommandPermission {
+                        id: s.id,
+                        ty: discordant::types::ApplicationCommandPermissionType::Role,
+                        permission: true,
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .await
+            .unwrap();
+    }
 }
 
 #[derive(Debug)]
@@ -476,21 +567,28 @@ async fn main() {
     let mut gateway = connect_to_gateway(&gateway_info.url, discord_token, intents)
         .await
         .expect("Could not connect to gateway");
-    
+
     for (_, guild_config) in &cfg.guilds {
         if let Some(notification_channel) = guild_config.notification_channel {
-            client.create_message(notification_channel, CreateMessagePayload {
-                content: ":chart_with_upwards_trend: Chrysanthemum online".to_owned(),
-            }).await.unwrap();
+            client
+                .create_message(
+                    notification_channel,
+                    CreateMessagePayload {
+                        content: ":chart_with_upwards_trend: Chrysanthemum online".to_owned(),
+                    },
+                )
+                .await
+                .unwrap();
         }
     }
 
     let running = Arc::new(AtomicBool::new(true));
-    let ctrl_c_running = running.clone();
-    ctrlc::set_handler(move || {
-        ctrl_c_running.store(false, Ordering::SeqCst);
-    }).expect("Couldn't set Ctrl-C handler");
-    
+    // let ctrl_c_running = running.clone();
+    // ctrlc::set_handler(move || {
+    //     ctrl_c_running.store(false, Ordering::SeqCst);
+    // })
+    // .expect("Couldn't set Ctrl-C handler");
+
     loop {
         if !running.load(Ordering::SeqCst) {
             log::debug!("Termination requested, shutting down loop");
@@ -502,96 +600,110 @@ async fn main() {
 
         match event {
             Ok(event) => {
-                if let Event::MessageCreate(message) = event {
-                    let cfg = cfg.clone();
-                    let client = client.clone();
-                    let spam_history = spam_history.clone();
-                    tokio::spawn(async move {
-                        // guild_id will always be set in this case, because we
-                        // will only ever receive guild messages via our intent.
-                        if let Some(guild_config) = cfg.guilds.get(&message.guild_id.unwrap()) {
-                            for filter in &guild_config.filters {
-                                let filter_result = filter.filter_message(&message);
+                match event {
+                    Event::MessageCreate(message) => {
+                        let cfg = cfg.clone();
+                        let client = client.clone();
+                        let spam_history = spam_history.clone();
+                        tokio::spawn(async move {
+                            // guild_id will always be set in this case, because we
+                            // will only ever receive guild messages via our intent.
+                            if let Some(guild_config) = cfg.guilds.get(&message.guild_id.unwrap()) {
+                                for filter in &guild_config.filters {
+                                    let filter_result = filter.filter_message(&message);
 
-                                if matches!(filter_result, FilterResult::Pass) {
-                                    continue
-                                }
-
-                                let new_spam_record = SpamRecord::from_message(&message);
-                                let author_spam_history = {
-                                    let read_history = spam_history.read().await;
-                                    // This is tricky: We need to release the read lock, acquire a write lock, and
-                                    // then insert the new history entry into the map.
-                                    if !read_history.contains_key(&message.author.id) {
-                                        drop(read_history);
-
-                                        let new_history = Arc::new(Mutex::new(VecDeque::new()));
-                                        let mut write_history = spam_history.write().await;
-                                        write_history
-                                            .insert(message.author.id, new_history.clone());
-                                        drop(write_history);
-                                        new_history
-                                    } else {
-                                        read_history.get(&message.author.id).unwrap().clone()
+                                    if matches!(filter_result, FilterResult::Pass) {
+                                        continue;
                                     }
-                                };
 
-                                let spam_result = if matches!(filter_result, FilterResult::Failed(_)) {
-                                    FilterResult::Ok
-                                } else {
-                                    let mut spam_history = author_spam_history.lock().unwrap();
+                                    let new_spam_record = SpamRecord::from_message(&message);
+                                    let author_spam_history = {
+                                        let read_history = spam_history.read().await;
+                                        // This is tricky: We need to release the read lock, acquire a write lock, and
+                                        // then insert the new history entry into the map.
+                                        if !read_history.contains_key(&message.author.id) {
+                                            drop(read_history);
 
-                                    let interval = Duration::from_secs(filter.spam.interval as u64);
-                                    let now = OffsetDateTime::now_utc();
-                                    let mut cleared_count = 0;
-                                    loop {
-                                        match spam_history.front() {
-                                            Some(front) => {
-                                                if now - front.sent_at > interval {
-                                                    spam_history.pop_front();
-                                                    cleared_count += 1;
-                                                } else {
-                                                    break;
+                                            let new_history = Arc::new(Mutex::new(VecDeque::new()));
+                                            let mut write_history = spam_history.write().await;
+                                            write_history
+                                                .insert(message.author.id, new_history.clone());
+                                            drop(write_history);
+                                            new_history
+                                        } else {
+                                            read_history.get(&message.author.id).unwrap().clone()
+                                        }
+                                    };
+
+                                    let spam_result =
+                                        if matches!(filter_result, FilterResult::Failed(_)) {
+                                            FilterResult::Ok
+                                        } else {
+                                            let mut spam_history =
+                                                author_spam_history.lock().unwrap();
+
+                                            let interval =
+                                                Duration::from_secs(filter.spam.interval as u64);
+                                            let now = OffsetDateTime::now_utc();
+                                            let mut cleared_count = 0;
+                                            loop {
+                                                match spam_history.front() {
+                                                    Some(front) => {
+                                                        if now - front.sent_at > interval {
+                                                            spam_history.pop_front();
+                                                            cleared_count += 1;
+                                                        } else {
+                                                            break;
+                                                        }
+                                                    }
+                                                    None => break,
                                                 }
                                             }
-                                            None => break,
+
+                                            log::trace!(
+                                                "Cleared {} spam records for user {}",
+                                                cleared_count,
+                                                message.author.id
+                                            );
+
+                                            let result = exceeds_spam_thresholds(
+                                                &spam_history,
+                                                &new_spam_record,
+                                                &filter.spam,
+                                            );
+                                            spam_history.push_back(new_spam_record);
+                                            result
+                                        };
+
+                                    let result = if matches!(filter_result, FilterResult::Ok) {
+                                        spam_result
+                                    } else {
+                                        filter_result
+                                    };
+
+                                    if let FilterResult::Failed(reason) = result {
+                                        for action in &filter.actions {
+                                            action
+                                                .do_action(&reason, &message, &client)
+                                                .await
+                                                .expect("Couldn't perform action");
                                         }
                                     }
-
-                                    log::trace!(
-                                        "Cleared {} spam records for user {}",
-                                        cleared_count,
-                                        message.author.id
-                                    );
-
-                                    let result = exceeds_spam_thresholds(
-                                        &spam_history,
-                                        &new_spam_record,
-                                        &filter.spam,
-                                    );
-                                    spam_history.push_back(new_spam_record);
-                                    result
-                                };
-
-                                let result = if matches!(filter_result, FilterResult::Ok) {
-                                    spam_result
-                                } else {
-                                    filter_result
-                                };
-
-                                if let FilterResult::Failed(reason) = result {
-                                    for action in &filter.actions {
-                                        action
-                                            .do_action(&reason, &message, &client)
-                                            .await
-                                            .expect("Couldn't perform action");
-                                    }
-
-                                    break;
                                 }
                             }
-                        }
-                    });
+                        });
+                    }
+                    Event::Ready(ready) => {
+                        let cfg = cfg.clone();
+                        let client = client.clone();
+                        tokio::spawn(async move {
+                            create_slash_commands(ready.application.id, &cfg, &client).await;
+                        });
+                    },
+                    Event::InteractionCreate(interaction) => {
+                        log::debug!("INTERACTION: {:?}", interaction);
+                    }
+                    _ => {}
                 }
             }
             Err(err) => {
@@ -603,9 +715,15 @@ async fn main() {
 
     for (_, guild_config) in &cfg.guilds {
         if let Some(notification_channel) = guild_config.notification_channel {
-            client.create_message(notification_channel, CreateMessagePayload {
-                content: ":chart_with_downwards_trend: Chrysanthemum offline".to_owned(),
-            }).await.unwrap();
+            client
+                .create_message(
+                    notification_channel,
+                    CreateMessagePayload {
+                        content: ":chart_with_downwards_trend: Chrysanthemum offline".to_owned(),
+                    },
+                )
+                .await
+                .unwrap();
         }
     }
 }
