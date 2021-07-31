@@ -8,25 +8,19 @@ use discordant::http::{Client, CreateMessagePayload, DiscordHttpError};
 use discordant::types::{Message, Snowflake};
 use once_cell::sync::OnceCell;
 use regex::Regex;
-use serde::Deserialize;
 use time::OffsetDateTime;
 use tokio::sync::RwLock;
+
+use config::*;
+
+mod config;
 
 static ZALGO_REGEX: OnceCell<Regex> = OnceCell::new();
 static INVITE_REGEX: OnceCell<Regex> = OnceCell::new();
 static LINK_REGEX: OnceCell<Regex> = OnceCell::new();
 static SPOILER_REGEX: OnceCell<Regex> = OnceCell::new();
 static EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
-
-#[derive(Deserialize, Debug)]
-#[serde(tag = "action", rename_all = "snake_case")]
-enum Action {
-    Delete,
-    SendMessage {
-        channel_id: Snowflake,
-        content: String,
-    },
-}
+static CUSTOM_EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
 
 impl Action {
     async fn do_action(
@@ -64,99 +58,7 @@ impl Action {
     }
 }
 
-/// Deserializes a list of strings into a single regex that matches any of those
-/// words, capturing the matching word. This allows for more performant matching
-/// because the regex engine is better at doing this kind of test than we are.
-fn deserialize_word_regex<'de, D>(de: D) -> Result<Regex, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct WordRegexVisitor;
-    impl<'de> serde::de::Visitor<'de> for WordRegexVisitor {
-        type Value = Regex;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            formatter.write_str("word list")
-        }
-
-        fn visit_seq<V>(self, mut seq: V) -> Result<Regex, V::Error>
-        where
-            V: serde::de::SeqAccess<'de>,
-        {
-            let mut words = Vec::new();
-            while let Some(word) = seq.next_element()? {
-                words.push(regex::escape(word));
-            }
-
-            let mut pattern = words.join("|");
-            pattern.insert_str(0, "\\b(");
-            pattern.push_str(")\\b");
-
-            let regex = Regex::new(&pattern);
-
-            match regex {
-                Ok(regex) => Ok(regex),
-                Err(err) => Err(serde::de::Error::custom(format!(
-                    "unable to construct regex: {}",
-                    err
-                ))),
-            }
-        }
-    }
-
-    de.deserialize_seq(WordRegexVisitor)
-}
-
-#[derive(Deserialize, Debug)]
-enum FilterMode {
-    #[serde(rename = "allow")]
-    AllowList,
-    #[serde(rename = "deny")]
-    DenyList,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum Filter {
-    Words {
-        // Note: In the config format, this is an array of strings, not one
-        // regex pattern.
-        #[serde(deserialize_with = "deserialize_word_regex")]
-        words: Regex,
-    },
-    Regex {
-        #[serde(with = "serde_regex")]
-        regexes: Vec<Regex>,
-    },
-    Zalgo,
-    MimeType {
-        mode: FilterMode,
-        types: Vec<String>,
-        // Sometimes an attachment won't have a MIME type attached. If this is
-        // the case, what do we do? This field controls this behavior - we can
-        // either ignore it, or reject it out of an abundance of caution.
-        allow_unknown: bool,
-    },
-    Invite {
-        mode: FilterMode,
-        invites: Vec<String>,
-    },
-    Link {
-        mode: FilterMode,
-        domains: Vec<String>,
-    },
-    Sticker {
-        mode: FilterMode,
-        stickers: Vec<Snowflake>,
-    },
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum FilterResult {
-    Ok,
-    Pass,
-    Failed(String),
-}
+type FilterResult = Result<(), String>;
 
 fn filter_values<T, V, I>(
     mode: &FilterMode,
@@ -175,52 +77,100 @@ where
             // sometimes pass Vec<String> as filter_values, where T is &str -
             // contains isn't smart enough to handle this case.
             .find(|v| !filter_values.iter().any(|f| f == v))
-            .map(|v| FilterResult::Failed(format!("contains unallowed {} {}", context, v))),
+            .map(|v| Err(format!("contains unallowed {} {}", context, v))),
         FilterMode::DenyList => values
             .find(|v| filter_values.iter().any(|f| f == v))
-            .map(|v| FilterResult::Failed(format!("contains denied {} {}", context, v))),
+            .map(|v| Err(format!("contains denied {} {}", context, v))),
     };
 
-    result.unwrap_or(FilterResult::Ok)
+    result.unwrap_or(Ok(()))
 }
 
-impl Filter {
+impl Scoping {
+    fn is_included(&self, channel: Snowflake, author_roles: &Vec<Snowflake>) -> bool {
+        if self.include_channels.is_some() {
+            if self
+                .include_channels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|c| *c != channel)
+            {
+                return false;
+            }
+        }
+
+        if self.exclude_channels.is_some() {
+            if self
+                .exclude_channels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|c| *c == channel)
+            {
+                return false;
+            }
+        }
+
+        if self.exclude_roles.is_some() {
+            for excluded_role in self.exclude_roles.as_ref().unwrap() {
+                if author_roles.contains(excluded_role) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+}
+
+impl MessageFilter {
+    fn filter_message(&self, message: &Message) -> FilterResult {
+        self.rules
+            .iter()
+            .map(|f| f.check_match(&message))
+            .find(|r| r.is_err())
+            .unwrap_or(Ok(()))
+    }
+}
+
+impl config::MessageFilterRule {
     fn check_match(&self, message: &Message) -> FilterResult {
         match self {
-            Filter::Words { words } => {
+            MessageFilterRule::Words { words } => {
                 if let Some(captures) = words.captures(&message.content) {
-                    FilterResult::Failed(format!(
+                    Err(format!(
                         "contains word {}",
                         captures.get(1).unwrap().as_str()
                     ))
                 } else {
-                    FilterResult::Ok
+                    Ok(())
                 }
             }
-            Filter::Regex { regexes } => {
+            MessageFilterRule::Regex { regexes } => {
                 for regex in regexes {
                     if regex.is_match(&message.content) {
-                        return FilterResult::Failed(format!("matches regex {}", regex));
+                        return Err(format!("matches regex {}", regex));
                     }
                 }
 
-                FilterResult::Ok
+                Ok(())
             }
-            Filter::Zalgo => {
+            MessageFilterRule::Zalgo => {
                 let zalgo_regex = ZALGO_REGEX.get().unwrap();
                 if zalgo_regex.is_match(&message.content) {
-                    FilterResult::Failed("contains zalgo".to_owned())
+                    Err("contains zalgo".to_owned())
                 } else {
-                    FilterResult::Ok
+                    Ok(())
                 }
             }
-            Filter::MimeType {
+            MessageFilterRule::MimeType {
                 mode,
                 types,
                 allow_unknown,
             } => {
                 if message.attachments.iter().any(|a| a.content_type.is_none()) && !allow_unknown {
-                    return FilterResult::Failed("unknown content type for attachment".to_owned());
+                    return Err("unknown content type for attachment".to_owned());
                 }
 
                 let mut attachment_types = message
@@ -229,21 +179,21 @@ impl Filter {
                     .filter_map(|a| a.content_type.as_deref());
                 filter_values(mode, "content type", &mut attachment_types, types)
             }
-            Filter::Invite { mode, invites } => {
+            MessageFilterRule::Invite { mode, invites } => {
                 let invite_regex = INVITE_REGEX.get().unwrap();
                 let mut invite_ids = invite_regex
                     .captures_iter(&message.content)
                     .map(|c| c.get(1).unwrap().as_str());
                 filter_values(mode, "invite", &mut invite_ids, invites)
             }
-            Filter::Link { mode, domains } => {
+            MessageFilterRule::Link { mode, domains } => {
                 let link_regex = LINK_REGEX.get().unwrap();
                 let mut link_domains = link_regex
                     .captures_iter(&message.content)
                     .map(|c| c.get(1).unwrap().as_str());
                 filter_values(mode, "domain", &mut link_domains, domains)
             }
-            Filter::Sticker { mode, stickers } => {
+            MessageFilterRule::StickerId { mode, stickers } => {
                 if let Some(message_stickers) = &message.sticker_items {
                     filter_values(
                         mode,
@@ -252,21 +202,44 @@ impl Filter {
                         stickers,
                     )
                 } else {
-                    FilterResult::Ok
+                    Ok(())
                 }
+            }
+            MessageFilterRule::StickerName { stickers } => {
+                if let Some(message_stickers) = &message.sticker_items {
+                    for sticker in message_stickers {
+                        let substring_match = stickers.captures_iter(&sticker.name).nth(0);
+                        if let Some(substring_match) = substring_match {
+                            return Err(format!(
+                                "contains sticker with denied name substring {}",
+                                substring_match.get(0).unwrap().as_str()
+                            ));
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+            MessageFilterRule::EmojiName { names } => {
+                for capture in CUSTOM_EMOJI_REGEX
+                    .get()
+                    .unwrap()
+                    .captures_iter(&message.content)
+                {
+                    let name = capture.get(1).unwrap().as_str();
+                    let substring_match = names.captures(name);
+                    if let Some(substring_match) = substring_match {
+                        return Err(format!(
+                            "contains emoji with denied name substring {}",
+                            substring_match.get(0).unwrap().as_str()
+                        ));
+                    }
+                }
+
+                Ok(())
             }
         }
     }
-}
-
-#[derive(Deserialize, Debug, Default)]
-struct SpamConfig {
-    emoji: Option<u8>,
-    duplicates: Option<u8>,
-    links: Option<u8>,
-    attachments: Option<u8>,
-    spoilers: Option<u8>,
-    interval: u16,
 }
 
 #[derive(Debug)]
@@ -317,7 +290,7 @@ type SpamHistory = HashMap<Snowflake, Arc<Mutex<VecDeque<SpamRecord>>>>;
 fn exceeds_spam_thresholds(
     history: &VecDeque<SpamRecord>,
     current_record: &SpamRecord,
-    config: &SpamConfig,
+    config: &SpamFilter,
 ) -> FilterResult {
     let (emoji_sum, link_sum, attachment_sum, spoiler_sum, matching_duplicates) = history
         .iter()
@@ -354,96 +327,25 @@ fn exceeds_spam_thresholds(
     );
 
     if config.emoji.is_some() && emoji_sum > config.emoji.unwrap() && current_record.emoji > 0 {
-        FilterResult::Failed("sent too many emoji".to_owned())
+        Err("sent too many emoji".to_owned())
     } else if config.links.is_some() && link_sum > config.links.unwrap() && current_record.links > 0
     {
-        FilterResult::Failed("sent too many links".to_owned())
+        Err("sent too many links".to_owned())
     } else if config.attachments.is_some()
         && attachment_sum > config.attachments.unwrap()
         && current_record.attachments > 0
     {
-        FilterResult::Failed("sent too many attachments".to_owned())
+        Err("sent too many attachments".to_owned())
     } else if config.spoilers.is_some()
         && spoiler_sum > config.spoilers.unwrap()
         && current_record.spoilers > 0
     {
-        FilterResult::Failed("sent too many spoilers".to_owned())
+        Err("sent too many spoilers".to_owned())
     } else if config.duplicates.is_some() && matching_duplicates > config.duplicates.unwrap() {
-        FilterResult::Failed("sent too many duplicate messages".to_owned())
+        Err("sent too many duplicate messages".to_owned())
     } else {
-        FilterResult::Ok
+        Ok(())
     }
-}
-
-#[derive(Deserialize, Debug, Default)]
-struct FilterConfig {
-    rules: Vec<Filter>,
-    spam: SpamConfig,
-    exclude_channels: Vec<Snowflake>,
-    include_channels: Vec<Snowflake>,
-    exclude_roles: Vec<Snowflake>,
-    actions: Vec<Action>,
-    #[serde(default)]
-    include_bots: bool,
-}
-
-impl FilterConfig {
-    fn filter_message(&self, message: &Message) -> FilterResult {
-        if !self.include_bots && message.author.bot.unwrap_or(false) {
-            return FilterResult::Pass;
-        }
-
-        if self.include_channels.is_empty()
-            && self
-                .exclude_channels
-                .iter()
-                .any(|c| message.channel_id == *c)
-        {
-            return FilterResult::Pass;
-        }
-
-        if !self
-            .include_channels
-            .iter()
-            .any(|c| message.channel_id == *c)
-        {
-            return FilterResult::Pass;
-        }
-
-        if let Some(member_info) = &message.member {
-            if self
-                .exclude_roles
-                .iter()
-                .any(|r| member_info.roles.contains(r))
-            {
-                return FilterResult::Pass;
-            }
-        }
-
-        self.rules
-            .iter()
-            .map(|f| f.check_match(&message))
-            .find(|r| matches!(r, FilterResult::Failed(_)))
-            .unwrap_or(FilterResult::Ok)
-    }
-}
-
-#[derive(Deserialize, Debug)]
-struct SlashCommandPermissions {
-    id: Snowflake,
-}
-
-#[derive(Deserialize, Debug)]
-struct GuildConfig {
-    filters: Vec<FilterConfig>,
-    notification_channel: Option<Snowflake>,
-    enable_slash_commands: bool,
-    slash_command_permissions: Vec<SlashCommandPermissions>,
-}
-
-#[derive(Deserialize, Debug)]
-struct Config {
-    guilds: HashMap<Snowflake, GuildConfig>,
 }
 
 fn init_globals() {
@@ -456,23 +358,18 @@ fn init_globals() {
     let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
     let _ = SPOILER_REGEX.set(Regex::new("||[^|]*||").unwrap());
     let _ = EMOJI_REGEX.set(
-        Regex::new(
-            "\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}|<a?:[^:]+:\\d+>",
-        )
-        .unwrap(),
+        Regex::new("\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}").unwrap(),
     );
+    let _ = CUSTOM_EMOJI_REGEX.set(Regex::new("<a?:([^:]+):(\\d+)>").unwrap());
 }
 
 async fn create_slash_commands(app_id: Snowflake, config: &Config, client: &Client) {
     for (guild_id, guild) in &config.guilds {
-        if !guild.enable_slash_commands {
+        if guild.slash_commands.is_none() {
             continue;
         }
 
-        if guild.slash_command_permissions.len() == 0 {
-            log::error!("Guild {} has enabled slash commands, but no roles have access to it. Slash commands will be disabled in this server.", guild_id);
-            continue;
-        }
+        let slash_commands = guild.slash_commands.as_ref().unwrap();
 
         let payload = discordant::http::CreateApplicationCommandPayload {
             name: "chrysanthemum".to_owned(),
@@ -509,16 +406,17 @@ async fn create_slash_commands(app_id: Snowflake, config: &Config, client: &Clie
             .create_guild_application_command(app_id, *guild_id, payload)
             .await
             .unwrap();
+
         client
             .edit_application_command_permissions(
                 app_id,
                 *guild_id,
                 created_command.id,
-                guild
-                    .slash_command_permissions
+                slash_commands
+                    .roles
                     .iter()
                     .map(|s| discordant::types::ApplicationCommandPermission {
-                        id: s.id,
+                        id: *s,
                         ty: discordant::types::ApplicationCommandPermissionType::Role,
                         permission: true,
                     })
@@ -529,9 +427,81 @@ async fn create_slash_commands(app_id: Snowflake, config: &Config, client: &Clie
     }
 }
 
-#[derive(Debug)]
-struct BotState {
-    spam: SpamHistory,
+async fn send_notification(config: &Config, client: &Client, notification_content: &str) {
+    for (_, guild_cfg) in &config.guilds {
+        if let Some(notification_settings) = &guild_cfg.notifications {
+            let mut message_content = String::new();
+
+            if let Some(roles) = &notification_settings.ping_roles {
+                for role in roles {
+                    message_content.push_str(&format!("<@&{}>\n", role));
+                }
+            }
+
+            message_content.push_str(notification_content);
+            client
+                .create_message(
+                    notification_settings.channel,
+                    CreateMessagePayload {
+                        content: message_content,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+    }
+}
+
+async fn check_spam_record(
+    message: &Message,
+    config: &SpamFilter,
+    spam_history: Arc<RwLock<SpamHistory>>,
+) -> FilterResult {
+    let new_spam_record = SpamRecord::from_message(&message);
+    let author_spam_history = {
+        let read_history = spam_history.read().await;
+        // This is tricky: We need to release the read lock, acquire a write lock, and
+        // then insert the new history entry into the map.
+        if !read_history.contains_key(&message.author.id) {
+            drop(read_history);
+
+            let new_history = Arc::new(Mutex::new(VecDeque::new()));
+            let mut write_history = spam_history.write().await;
+            write_history.insert(message.author.id, new_history.clone());
+            new_history
+        } else {
+            read_history.get(&message.author.id).unwrap().clone()
+        }
+    };
+
+    let mut spam_history = author_spam_history.lock().unwrap();
+
+    let interval = Duration::from_secs(config.interval as u64);
+    let now = OffsetDateTime::now_utc();
+    let mut cleared_count = 0;
+    loop {
+        match spam_history.front() {
+            Some(front) => {
+                if now - front.sent_at > interval {
+                    spam_history.pop_front();
+                    cleared_count += 1;
+                } else {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+
+    log::trace!(
+        "Cleared {} spam records for user {}",
+        cleared_count,
+        message.author.id
+    );
+
+    let result = exceeds_spam_thresholds(&spam_history, &new_spam_record, &config);
+    spam_history.push_back(new_spam_record);
+    result
 }
 
 #[tokio::main]
@@ -554,6 +524,12 @@ async fn main() {
     let cfg_str = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg_json = comment_regex.replace_all(&cfg_str, "");
     let cfg: Config = serde_json::from_str(&cfg_json).expect("Couldn't deserialize config");
+    let cfg_validate_result = config::validate_config(&cfg);
+    if cfg_validate_result.is_err() {
+        let errs = cfg_validate_result.unwrap_err();
+        log::error!("Configuration errors were encountered: {:#?}", errs);
+        return;
+    }
 
     let client = discordant::http::Client::new(&discord_token);
     let gateway_info = client.get_gateway_info().await.unwrap();
@@ -568,19 +544,12 @@ async fn main() {
         .await
         .expect("Could not connect to gateway");
 
-    for (_, guild_config) in &cfg.guilds {
-        if let Some(notification_channel) = guild_config.notification_channel {
-            client
-                .create_message(
-                    notification_channel,
-                    CreateMessagePayload {
-                        content: ":chart_with_upwards_trend: Chrysanthemum online".to_owned(),
-                    },
-                )
-                .await
-                .unwrap();
-        }
-    }
+    send_notification(
+        &cfg,
+        &client,
+        ":chart_with_upwards_trend: Chrysanthemum online",
+    )
+    .await;
 
     let running = Arc::new(AtomicBool::new(true));
     // let ctrl_c_running = running.clone();
@@ -609,84 +578,58 @@ async fn main() {
                             // guild_id will always be set in this case, because we
                             // will only ever receive guild messages via our intent.
                             if let Some(guild_config) = cfg.guilds.get(&message.guild_id.unwrap()) {
-                                for filter in &guild_config.filters {
-                                    let filter_result = filter.filter_message(&message);
+                                if message.author.bot.unwrap_or(false) && !guild_config.include_bots
+                                {
+                                    return;
+                                }
 
-                                    if matches!(filter_result, FilterResult::Pass) {
-                                        continue;
+                                if let Some(message_filters) = &guild_config.messages {
+                                    let (mut filter_result, mut actions) = (None, None);
+
+                                    for filter in message_filters {
+                                        let scoping = filter
+                                            .scoping
+                                            .as_ref()
+                                            .or(guild_config.default_scoping.as_ref());
+                                        if let Some(scoping) = scoping {
+                                            if !scoping.is_included(
+                                                message.channel_id,
+                                                &message.member.as_ref().unwrap().roles,
+                                            ) {
+                                                continue;
+                                            }
+                                        }
+
+                                        let test_result = filter.filter_message(&message);
+                                        if test_result.is_err() {
+                                            filter_result = Some(test_result);
+                                            actions = filter.actions.as_ref();
+                                            break;
+                                        }
                                     }
 
-                                    let new_spam_record = SpamRecord::from_message(&message);
-                                    let author_spam_history = {
-                                        let read_history = spam_history.read().await;
-                                        // This is tricky: We need to release the read lock, acquire a write lock, and
-                                        // then insert the new history entry into the map.
-                                        if !read_history.contains_key(&message.author.id) {
-                                            drop(read_history);
-
-                                            let new_history = Arc::new(Mutex::new(VecDeque::new()));
-                                            let mut write_history = spam_history.write().await;
-                                            write_history
-                                                .insert(message.author.id, new_history.clone());
-                                            drop(write_history);
-                                            new_history
-                                        } else {
-                                            read_history.get(&message.author.id).unwrap().clone()
+                                    if filter_result.is_none() {
+                                        if let Some(spam_config) = &guild_config.spam {
+                                            filter_result = Some(
+                                                check_spam_record(
+                                                    &message,
+                                                    &spam_config,
+                                                    spam_history.clone(),
+                                                )
+                                                .await,
+                                            );
+                                            actions = spam_config.actions.as_ref();
                                         }
-                                    };
+                                    }
 
-                                    let spam_result =
-                                        if matches!(filter_result, FilterResult::Failed(_)) {
-                                            FilterResult::Ok
-                                        } else {
-                                            let mut spam_history =
-                                                author_spam_history.lock().unwrap();
-
-                                            let interval =
-                                                Duration::from_secs(filter.spam.interval as u64);
-                                            let now = OffsetDateTime::now_utc();
-                                            let mut cleared_count = 0;
-                                            loop {
-                                                match spam_history.front() {
-                                                    Some(front) => {
-                                                        if now - front.sent_at > interval {
-                                                            spam_history.pop_front();
-                                                            cleared_count += 1;
-                                                        } else {
-                                                            break;
-                                                        }
-                                                    }
-                                                    None => break,
-                                                }
+                                    if let Some(Err(reason)) = filter_result {
+                                        if let Some(actions) = actions {
+                                            for action in actions {
+                                                action
+                                                    .do_action(&reason, &message, &client)
+                                                    .await
+                                                    .expect("Couldn't perform action");
                                             }
-
-                                            log::trace!(
-                                                "Cleared {} spam records for user {}",
-                                                cleared_count,
-                                                message.author.id
-                                            );
-
-                                            let result = exceeds_spam_thresholds(
-                                                &spam_history,
-                                                &new_spam_record,
-                                                &filter.spam,
-                                            );
-                                            spam_history.push_back(new_spam_record);
-                                            result
-                                        };
-
-                                    let result = if matches!(filter_result, FilterResult::Ok) {
-                                        spam_result
-                                    } else {
-                                        filter_result
-                                    };
-
-                                    if let FilterResult::Failed(reason) = result {
-                                        for action in &filter.actions {
-                                            action
-                                                .do_action(&reason, &message, &client)
-                                                .await
-                                                .expect("Couldn't perform action");
                                         }
                                     }
                                 }
@@ -699,7 +642,7 @@ async fn main() {
                         tokio::spawn(async move {
                             create_slash_commands(ready.application.id, &cfg, &client).await;
                         });
-                    },
+                    }
                     Event::InteractionCreate(interaction) => {
                         log::debug!("INTERACTION: {:?}", interaction);
                     }
@@ -713,30 +656,23 @@ async fn main() {
         }
     }
 
-    for (_, guild_config) in &cfg.guilds {
-        if let Some(notification_channel) = guild_config.notification_channel {
-            client
-                .create_message(
-                    notification_channel,
-                    CreateMessagePayload {
-                        content: ":chart_with_downwards_trend: Chrysanthemum offline".to_owned(),
-                    },
-                )
-                .await
-                .unwrap();
-        }
-    }
+    send_notification(
+        &cfg,
+        &client,
+        ":chart_with_downwards_trend: Chrysanthemum offline",
+    )
+    .await;
 }
 
 #[cfg(test)]
 mod test {
-    use discordant::types::{Attachment, MessageGuildMemberInfo, MessageStickerItem, User};
+    use discordant::types::{Attachment, MessageStickerItem};
 
     use super::*;
 
     #[test]
     fn filter_words() {
-        let rule = Filter::Words {
+        let rule = MessageFilterRule::Words {
             words: Regex::new("\\b(a|b)\\b").unwrap(),
         };
 
@@ -745,7 +681,7 @@ mod test {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
-            FilterResult::Ok
+            Ok(())
         );
 
         assert_eq!(
@@ -753,13 +689,13 @@ mod test {
                 content: "a".to_owned(),
                 ..Default::default()
             }),
-            FilterResult::Failed("contains word a".to_owned())
+            Err("contains word a".to_owned())
         );
     }
 
     #[test]
     fn filter_regex() {
-        let rule = Filter::Regex {
+        let rule = MessageFilterRule::Regex {
             regexes: vec![Regex::new("a|b").unwrap()],
         };
 
@@ -768,7 +704,7 @@ mod test {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
-            FilterResult::Ok
+            Ok(())
         );
 
         assert_eq!(
@@ -776,7 +712,7 @@ mod test {
                 content: "a".to_owned(),
                 ..Default::default()
             }),
-            FilterResult::Failed("matches regex a|b".to_owned())
+            Err("matches regex a|b".to_owned())
         );
     }
 
@@ -784,14 +720,14 @@ mod test {
     fn filter_zalgo() {
         init_globals();
 
-        let rule = Filter::Zalgo;
+        let rule = MessageFilterRule::Zalgo;
 
         assert_eq!(
             rule.check_match(&Message {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
-            FilterResult::Ok
+            Ok(())
         );
 
         assert_eq!(
@@ -799,19 +735,19 @@ mod test {
                 content: "t̸͈͈̒̑͛ê̷͓̜͎s̴̡͍̳͊t̴̪͙́̚".to_owned(),
                 ..Default::default()
             }),
-            FilterResult::Failed("contains zalgo".to_owned())
+            Err("contains zalgo".to_owned())
         );
     }
 
     #[test]
     fn filter_mime_type() {
-        let allow_rule = Filter::MimeType {
+        let allow_rule = MessageFilterRule::MimeType {
             mode: FilterMode::AllowList,
             types: vec!["image/png".to_owned()],
             allow_unknown: true,
         };
 
-        let deny_rule = Filter::MimeType {
+        let deny_rule = MessageFilterRule::MimeType {
             mode: FilterMode::DenyList,
             types: vec!["image/png".to_owned()],
             allow_unknown: true,
@@ -833,30 +769,30 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&png_message), FilterResult::Ok);
+        assert_eq!(allow_rule.check_match(&png_message), Ok(()));
 
         assert_eq!(
             allow_rule.check_match(&gif_message),
-            FilterResult::Failed("contains unallowed content type image/gif".to_owned())
+            Err("contains unallowed content type image/gif".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&png_message),
-            FilterResult::Failed("contains denied content type image/png".to_owned())
+            Err("contains denied content type image/png".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&gif_message), FilterResult::Ok);
+        assert_eq!(deny_rule.check_match(&gif_message), Ok(()));
     }
 
     #[test]
     fn filter_unknown_mime_type() {
-        let allow_rule = Filter::MimeType {
+        let allow_rule = MessageFilterRule::MimeType {
             mode: FilterMode::AllowList,
             types: vec!["image/png".to_owned()],
             allow_unknown: true,
         };
 
-        let deny_rule = Filter::MimeType {
+        let deny_rule = MessageFilterRule::MimeType {
             mode: FilterMode::AllowList,
             types: vec!["image/png".to_owned()],
             allow_unknown: false,
@@ -870,11 +806,11 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&unknown_message), FilterResult::Ok);
+        assert_eq!(allow_rule.check_match(&unknown_message), Ok(()));
 
         assert_eq!(
             deny_rule.check_match(&unknown_message),
-            FilterResult::Failed("unknown content type for attachment".to_owned())
+            Err("unknown content type for attachment".to_owned())
         );
     }
 
@@ -882,12 +818,12 @@ mod test {
     fn filter_invites() {
         init_globals();
 
-        let allow_rule = Filter::Invite {
+        let allow_rule = MessageFilterRule::Invite {
             mode: FilterMode::AllowList,
             invites: vec!["roblox".to_owned()],
         };
 
-        let deny_rule = Filter::Invite {
+        let deny_rule = MessageFilterRule::Invite {
             mode: FilterMode::DenyList,
             invites: vec!["roblox".to_owned()],
         };
@@ -902,31 +838,31 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&roblox_message), FilterResult::Ok);
+        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
 
         assert_eq!(
             allow_rule.check_match(&not_roblox_message),
-            FilterResult::Failed("contains unallowed invite asdf".to_owned())
+            Err("contains unallowed invite asdf".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&roblox_message),
-            FilterResult::Failed("contains denied invite roblox".to_owned())
+            Err("contains denied invite roblox".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&not_roblox_message), FilterResult::Ok);
+        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
     }
 
     #[test]
     fn filter_domains() {
         init_globals();
 
-        let allow_rule = Filter::Link {
+        let allow_rule = MessageFilterRule::Link {
             mode: FilterMode::AllowList,
             domains: vec!["roblox.com".to_owned()],
         };
 
-        let deny_rule = Filter::Link {
+        let deny_rule = MessageFilterRule::Link {
             mode: FilterMode::DenyList,
             domains: vec!["roblox.com".to_owned()],
         };
@@ -941,29 +877,29 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&roblox_message), FilterResult::Ok);
+        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
 
         assert_eq!(
             allow_rule.check_match(&not_roblox_message),
-            FilterResult::Failed("contains unallowed domain discord.com".to_owned())
+            Err("contains unallowed domain discord.com".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&roblox_message),
-            FilterResult::Failed("contains denied domain roblox.com".to_owned())
+            Err("contains denied domain roblox.com".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&not_roblox_message), FilterResult::Ok);
+        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
     }
 
     #[test]
     fn filter_stickers() {
-        let allow_rule = Filter::Sticker {
+        let allow_rule = MessageFilterRule::StickerId {
             mode: FilterMode::AllowList,
             stickers: vec![Snowflake::new(0)],
         };
 
-        let deny_rule = Filter::Sticker {
+        let deny_rule = MessageFilterRule::StickerId {
             mode: FilterMode::DenyList,
             stickers: vec![Snowflake::new(0)],
         };
@@ -986,152 +922,18 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&zero_sticker), FilterResult::Ok);
+        assert_eq!(allow_rule.check_match(&zero_sticker), Ok(()));
 
         assert_eq!(
             allow_rule.check_match(&non_zero_sticker),
-            FilterResult::Failed("contains unallowed sticker 1".to_owned())
+            Err("contains unallowed sticker 1".to_owned())
         );
 
         assert_eq!(
             deny_rule.check_match(&zero_sticker),
-            FilterResult::Failed("contains denied sticker 0".to_owned())
+            Err("contains denied sticker 0".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&non_zero_sticker), FilterResult::Ok);
-    }
-
-    #[test]
-    fn deserialize_word_regex() {
-        let json = r#"
-        {
-            "type": "words",
-            "words": ["a", "b", "a(b)"]
-        }
-        "#;
-
-        let rule: Filter = serde_json::from_str(&json).expect("couldn't deserialize Filter");
-
-        if let Filter::Words { words } = rule {
-            assert_eq!(words.to_string(), "\\b(a|b|a\\(b\\))\\b");
-        } else {
-            assert!(false, "deserialized wrong filter");
-        }
-    }
-
-    #[test]
-    fn exclude_channels() {
-        let cfg = FilterConfig {
-            rules: vec![Filter::Words {
-                words: Regex::new("\\b(a)\\b").unwrap(),
-            }],
-            exclude_channels: vec![Snowflake::new(1)],
-            ..Default::default()
-        };
-
-        let message = Message {
-            content: "a".to_owned(),
-            channel_id: Snowflake::new(1),
-            ..Default::default()
-        };
-
-        let result = cfg.filter_message(&message);
-        assert_eq!(result, FilterResult::Pass);
-    }
-
-    #[test]
-    fn include_channels() {
-        let cfg = FilterConfig {
-            rules: vec![Filter::Words {
-                words: Regex::new("\\b(a)\\b").unwrap(),
-            }],
-            include_channels: vec![Snowflake::new(1)],
-            ..Default::default()
-        };
-
-        let message_0 = Message {
-            content: "a".to_owned(),
-            channel_id: Snowflake::new(0),
-            ..Default::default()
-        };
-
-        let message_1 = Message {
-            content: "a".to_owned(),
-            channel_id: Snowflake::new(1),
-            ..Default::default()
-        };
-
-        let result_0 = cfg.filter_message(&message_0);
-        assert_eq!(result_0, FilterResult::Pass);
-
-        let result_1 = cfg.filter_message(&message_1);
-        assert_eq!(result_1, FilterResult::Failed("contains word a".to_owned()));
-    }
-
-    #[test]
-    fn exclude_channels_only_if_no_include_channels() {
-        let cfg = FilterConfig {
-            rules: vec![Filter::Words {
-                words: Regex::new("\\b(a)\\b").unwrap(),
-            }],
-            exclude_channels: vec![Snowflake::new(1)],
-            include_channels: vec![Snowflake::new(1)],
-            ..Default::default()
-        };
-
-        let message = Message {
-            content: "a".to_owned(),
-            channel_id: Snowflake::new(1),
-            ..Default::default()
-        };
-
-        let result = cfg.filter_message(&message);
-        assert_eq!(result, FilterResult::Failed("contains word a".to_owned()));
-    }
-
-    #[test]
-    fn exclude_roles() {
-        let cfg = FilterConfig {
-            rules: vec![Filter::Words {
-                words: Regex::new("\\b(a)\\b").unwrap(),
-            }],
-            exclude_roles: vec![Snowflake::new(0)],
-            ..Default::default()
-        };
-
-        let message = Message {
-            content: "a".to_owned(),
-            member: Some(MessageGuildMemberInfo {
-                roles: vec![Snowflake::new(0)],
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-
-        let result = cfg.filter_message(&message);
-        assert_eq!(result, FilterResult::Pass);
-    }
-
-    #[test]
-    fn skip_bots() {
-        let cfg = FilterConfig {
-            rules: vec![Filter::Words {
-                words: Regex::new("\\b(a)\\b").unwrap(),
-            }],
-            include_bots: false,
-            ..Default::default()
-        };
-
-        let message = Message {
-            content: "a".to_owned(),
-            author: User {
-                bot: Some(true),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let result = cfg.filter_message(&message);
-        assert_eq!(result, FilterResult::Pass);
+        assert_eq!(deny_rule.check_match(&non_zero_sticker), Ok(()));
     }
 }
