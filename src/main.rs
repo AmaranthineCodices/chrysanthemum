@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use discordant::gateway::{connect_to_gateway, Event, Intents};
 use discordant::http::{Client, CreateMessagePayload, DiscordHttpError};
-use discordant::types::{Message, ReactionEmoji, Snowflake};
+use discordant::types::{Embed, EmbedField, InteractionResponse, InteractionResponseMessageFlags, Message, ReactionEmoji, Snowflake};
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use time::OffsetDateTime;
@@ -315,6 +315,15 @@ impl config::ReactionFilterRule {
 }
 
 #[derive(Debug)]
+struct GuildStats {
+    filtered_messages: u64,
+    filtered_reactions: u64,
+    filtered_usernames: u64,
+}
+
+type Stats = HashMap<Snowflake, Arc<Mutex<GuildStats>>>;
+
+#[derive(Debug)]
 struct SpamRecord {
     content: String,
     emoji: u8,
@@ -611,6 +620,18 @@ async fn main() {
     let client = std::sync::Arc::new(client);
     let cfg = std::sync::Arc::new(cfg);
     let spam_history = Arc::new(RwLock::new(SpamHistory::new()));
+    let stats = Arc::new(RwLock::new(Stats::new()));
+
+    {
+        let mut stats = stats.write().await;
+        for (guild_id, _) in &cfg.guilds {
+            stats.insert(*guild_id, Arc::new(Mutex::new(GuildStats {
+                filtered_messages: 0,
+                filtered_reactions: 0,
+                filtered_usernames: 0,
+            })));
+        }
+    }
 
     let mut gateway = connect_to_gateway(&gateway_info.url, discord_token, intents)
         .await
@@ -646,6 +667,7 @@ async fn main() {
                         let cfg = cfg.clone();
                         let client = client.clone();
                         let spam_history = spam_history.clone();
+                        let stats = stats.clone();
                         tokio::spawn(async move {
                             // guild_id will always be set in this case, because we
                             // will only ever receive guild messages via our intent.
@@ -703,6 +725,10 @@ async fn main() {
                                                     .expect("Couldn't perform action");
                                             }
                                         }
+
+                                        let stats = stats.read().await;
+                                        let mut guild_stats = stats[&message.guild_id.unwrap()].lock().unwrap();
+                                        guild_stats.filtered_messages = guild_stats.filtered_messages.saturating_add(1);
                                     }
                                 }
                             }
@@ -716,15 +742,64 @@ async fn main() {
                         });
                     },
                     Event::InteractionCreate(interaction) => {
-                        log::debug!("INTERACTION: {:?}", interaction);
+                        log::debug!("INTERACTION: {:#?}", interaction);
+                        let guild_id = interaction.guild_id.unwrap();
+                        if let Some(data) = &interaction.data {
+                            if let Some(options) = &data.options {
+                                if let Some(subcommand) = options.first() {
+                                    if subcommand.name == "stats" {
+                                        let stats = stats.read().await;
+                                        let guild_stats = stats[&guild_id].lock().unwrap();
+                                        let response = InteractionResponse::ChannelMessageWithSource {
+                                            tts: false,
+                                            content: None,
+                                            embeds: Some(vec![
+                                                Embed {
+                                                    title: Some("Chrysanthemum stats".to_owned()),
+                                                    fields: Some(vec![
+                                                        EmbedField {
+                                                            name: "Filtered messages".to_owned(),
+                                                            value: guild_stats.filtered_messages.to_string(),
+                                                            inline: Some(false),
+                                                        },
+                                                        EmbedField {
+                                                            name: "Filtered reactions".to_owned(),
+                                                            value: guild_stats.filtered_reactions.to_string(),
+                                                            inline: Some(false),
+                                                        },
+                                                        EmbedField {
+                                                            name: "Filtered usernames".to_owned(),
+                                                            value: guild_stats.filtered_usernames.to_string(),
+                                                            inline: Some(false),
+                                                        },
+                                                    ]),
+                                                    ..Default::default()
+                                                }
+                                            ]),
+                                            flags: InteractionResponseMessageFlags::EMPHEMERAL,
+                                        };
+
+                                        let client = client.clone();
+                                        let interaction_token = interaction.token.clone();
+                                        let interaction_id = interaction.id;
+                                        tokio::spawn(async move {
+                                            client.send_interaction_response(interaction_id, &interaction_token, &response).await.unwrap();
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     },
                     Event::MessageReactionAdd { guild_id, channel_id, message_id, member, emoji, .. } => {
                         let cfg = cfg.clone();
                         let client = client.clone();
+                        let stats = stats.clone();
                         tokio::spawn(async move {
                             if guild_id.is_none() {
                                 return;
                             }
+
+                            let guild_id = guild_id.unwrap();
 
                             if member.is_none() {
                                 return;
@@ -732,7 +807,7 @@ async fn main() {
 
                             let member = member.unwrap();
             
-                            if let Some(guild_config) = cfg.guilds.get(&guild_id.unwrap()) {
+                            if let Some(guild_config) = cfg.guilds.get(&guild_id) {
                                 if member.user.bot.unwrap_or(false) && !guild_config.include_bots {
                                     return;
                                 }
@@ -763,6 +838,10 @@ async fn main() {
                                                     }
                                                 }
                                             }
+
+                                            let stats = stats.read().await;
+                                            let mut guild_stats = stats[&guild_id].lock().unwrap();
+                                            guild_stats.filtered_reactions = guild_stats.filtered_reactions.saturating_add(1);
                                         }
                                     }
                                 }
