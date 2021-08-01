@@ -179,7 +179,7 @@ pub struct SpamFilter {
     /// What actions to take when a message is considered spam.
     pub actions: Option<Vec<Action>>,
     /// Scoping rules to apply to the spam filter.
-    pub scoping: Scoping,
+    pub scoping: Option<Scoping>,
 }
 
 #[derive(Deserialize, Debug, Default)]
@@ -207,7 +207,6 @@ pub enum ReactionFilterRule {
     },
     /// Filter custom emoji by name.
     CustomName {
-        mode: FilterMode,
         // Note: In the config format, this is an array of strings, not one
         // regex pattern.
         #[serde(deserialize_with = "deserialize_substring_regex")]
@@ -339,7 +338,9 @@ pub fn validate_config(config: &Config) -> Result<(), Vec<String>> {
         }
 
         if let Some(spam) = &guild.spam {
-            validate_scoping(&spam.scoping, &format!("guild {} spam scoping", guild_id), &mut errors);
+            if let Some(scoping) = spam.scoping.as_ref() {
+                validate_scoping(scoping, &format!("guild {} spam scoping", guild_id), &mut errors);
+            }
             
             if let Some(actions) = &spam.actions {
                 if actions.len() == 0 {

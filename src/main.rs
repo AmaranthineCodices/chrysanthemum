@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use discordant::gateway::{connect_to_gateway, Event, Intents};
 use discordant::http::{Client, CreateMessagePayload, DiscordHttpError};
-use discordant::types::{Message, Snowflake};
+use discordant::types::{Message, ReactionEmoji, Snowflake};
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use time::OffsetDateTime;
@@ -237,6 +237,78 @@ impl config::MessageFilterRule {
                 }
 
                 Ok(())
+            }
+        }
+    }
+}
+
+impl ReactionFilter {
+    fn filter_reaction(&self, reaction: &ReactionEmoji) -> FilterResult {
+        self.rules
+            .iter()
+            .map(|f| f.filter_reaction(&reaction))
+            .find(|r| r.is_err())
+            .unwrap_or(Ok(()))
+    }
+}
+
+impl config::ReactionFilterRule {
+    fn filter_reaction(&self, reaction: &ReactionEmoji) -> FilterResult {
+        match self {
+            ReactionFilterRule::Default { emoji: filtered_emoji, mode } => {
+                if let ReactionEmoji::Standard { emoji } = reaction {
+                    match mode {
+                        FilterMode::AllowList => {
+                            if !filtered_emoji.contains(&emoji) {
+                                Err(format!("reacted with unallowed emoji {}", emoji))
+                            } else {
+                                Ok(())
+                            }
+                        },
+                        FilterMode::DenyList => {
+                            if filtered_emoji.contains(&emoji) {
+                                Err(format!("reacted with denied emoji {}", emoji))
+                            } else {
+                                Ok(())
+                            }
+                        }
+                    }
+                } else {
+                    Ok(())
+                }
+            },
+            ReactionFilterRule::CustomId { emoji: filtered_emoji, mode } => {
+                if let ReactionEmoji::Custom { id, .. } = reaction {
+                    match mode {
+                        FilterMode::AllowList => {
+                            if !filtered_emoji.contains(&id) {
+                                Err(format!("reacted with unallowed emoji {}", id))
+                            } else {
+                                Ok(())
+                            }
+                        },
+                        FilterMode::DenyList => {
+                            if filtered_emoji.contains(&id) {
+                                Err(format!("reacted with denied emoji {}", id))
+                            } else {
+                                Ok(())
+                            }
+                        }
+                    }
+                } else {
+                    Ok(())
+                }
+            },
+            ReactionFilterRule::CustomName { names } => {
+                if let ReactionEmoji::Custom { name: Some(name), .. } = reaction {
+                    if names.is_match(&name) {
+                        Err(format!("reacted with denied emoji name {}", name))
+                    } else {
+                        Ok(())
+                    }
+                } else {
+                    Ok(())
+                }
             }
         }
     }
@@ -534,7 +606,8 @@ async fn main() {
     let client = discordant::http::Client::new(&discord_token);
     let gateway_info = client.get_gateway_info().await.unwrap();
 
-    let intents = Intents::GUILD_MESSAGES;
+    let intents = Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
+    println!("{:?}", intents);
 
     let client = std::sync::Arc::new(client);
     let cfg = std::sync::Arc::new(cfg);
@@ -642,9 +715,60 @@ async fn main() {
                         tokio::spawn(async move {
                             create_slash_commands(ready.application.id, &cfg, &client).await;
                         });
-                    }
+                    },
                     Event::InteractionCreate(interaction) => {
                         log::debug!("INTERACTION: {:?}", interaction);
+                    },
+                    Event::MessageReactionAdd { guild_id, channel_id, message_id, member, emoji, .. } => {
+                        let cfg = cfg.clone();
+                        let client = client.clone();
+                        tokio::spawn(async move {
+                            if guild_id.is_none() {
+                                return;
+                            }
+
+                            if member.is_none() {
+                                return;
+                            }
+
+                            let member = member.unwrap();
+            
+                            if let Some(guild_config) = cfg.guilds.get(&guild_id.unwrap()) {
+                                if member.user.bot.unwrap_or(false) && !guild_config.include_bots {
+                                    return;
+                                }
+
+                                if let Some(reaction_filters) = &guild_config.reactions {
+                                    for filter in reaction_filters {
+                                        let scoping = filter.scoping.as_ref().or(guild_config.default_scoping.as_ref());
+                                        if let Some(scoping) = scoping {
+                                            if !scoping.is_included(channel_id, &member.roles) {
+                                                continue
+                                            }
+                                        }
+
+                                        let filter_result = filter.filter_reaction(&emoji);
+
+                                        if let Err(reason) = filter_result {
+                                            let actions = filter.actions.as_ref().or(guild_config.default_actions.as_ref());
+                                            if let Some(actions) = actions {
+                                                for action in actions {
+                                                    match action {
+                                                        Action::Delete => { client.delete_reactions_for_emoji(channel_id, message_id, &emoji).await.unwrap(); },
+                                                        Action::SendMessage { channel_id: target_channel, content } => {
+                                                            let formatted_content = content.replace("$REASON", &reason);
+                                                            client.create_message(*target_channel, CreateMessagePayload {
+                                                                content: formatted_content,
+                                                            }).await.unwrap();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     }
                     _ => {}
                 }
