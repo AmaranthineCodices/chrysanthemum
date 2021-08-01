@@ -607,7 +607,6 @@ async fn main() {
     let gateway_info = client.get_gateway_info().await.unwrap();
 
     let intents = Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
-    println!("{:?}", intents);
 
     let client = std::sync::Arc::new(client);
     let cfg = std::sync::Arc::new(cfg);
