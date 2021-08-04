@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use discordant::gateway::{connect_to_gateway, Event, Intents};
 use discordant::http::{Client, CreateMessagePayload, DiscordHttpError};
-use discordant::types::{Embed, EmbedField, InteractionResponse, InteractionResponseMessageFlags, Message, ReactionEmoji, Snowflake};
+use discordant::types::{
+    Embed, EmbedField, InteractionResponse, InteractionResponseMessageFlags, Message,
+    ReactionEmoji, Snowflake,
+};
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use time::OffsetDateTime;
@@ -128,17 +131,25 @@ impl MessageFilter {
     fn filter_message(&self, message: &Message) -> FilterResult {
         self.rules
             .iter()
-            .map(|f| f.check_match(&message))
+            .map(|f| f.filter_message(&message))
+            .find(|r| r.is_err())
+            .unwrap_or(Ok(()))
+    }
+
+    fn filter_text(&self, text: &str) -> FilterResult {
+        self.rules
+            .iter()
+            .map(|f| f.filter_text(text))
             .find(|r| r.is_err())
             .unwrap_or(Ok(()))
     }
 }
 
 impl config::MessageFilterRule {
-    fn check_match(&self, message: &Message) -> FilterResult {
+    fn filter_text(&self, text: &str) -> FilterResult {
         match self {
             MessageFilterRule::Words { words } => {
-                if let Some(captures) = words.captures(&message.content) {
+                if let Some(captures) = words.captures(text) {
                     Err(format!(
                         "contains word {}",
                         captures.get(1).unwrap().as_str()
@@ -149,7 +160,7 @@ impl config::MessageFilterRule {
             }
             MessageFilterRule::Regex { regexes } => {
                 for regex in regexes {
-                    if regex.is_match(&message.content) {
+                    if regex.is_match(text) {
                         return Err(format!("matches regex {}", regex));
                     }
                 }
@@ -158,12 +169,46 @@ impl config::MessageFilterRule {
             }
             MessageFilterRule::Zalgo => {
                 let zalgo_regex = ZALGO_REGEX.get().unwrap();
-                if zalgo_regex.is_match(&message.content) {
+                if zalgo_regex.is_match(text) {
                     Err("contains zalgo".to_owned())
                 } else {
                     Ok(())
                 }
             }
+            MessageFilterRule::Invite { mode, invites } => {
+                let invite_regex = INVITE_REGEX.get().unwrap();
+                let mut invite_ids = invite_regex
+                    .captures_iter(text)
+                    .map(|c| c.get(1).unwrap().as_str());
+                filter_values(mode, "invite", &mut invite_ids, invites)
+            }
+            MessageFilterRule::Link { mode, domains } => {
+                let link_regex = LINK_REGEX.get().unwrap();
+                let mut link_domains = link_regex
+                    .captures_iter(text)
+                    .map(|c| c.get(1).unwrap().as_str());
+                filter_values(mode, "domain", &mut link_domains, domains)
+            }
+            MessageFilterRule::EmojiName { names } => {
+                for capture in CUSTOM_EMOJI_REGEX.get().unwrap().captures_iter(text) {
+                    let name = capture.get(1).unwrap().as_str();
+                    let substring_match = names.captures(name);
+                    if let Some(substring_match) = substring_match {
+                        return Err(format!(
+                            "contains emoji with denied name substring {}",
+                            substring_match.get(0).unwrap().as_str()
+                        ));
+                    }
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn filter_message(&self, message: &Message) -> FilterResult {
+        match self {
             MessageFilterRule::MimeType {
                 mode,
                 types,
@@ -178,20 +223,6 @@ impl config::MessageFilterRule {
                     .iter()
                     .filter_map(|a| a.content_type.as_deref());
                 filter_values(mode, "content type", &mut attachment_types, types)
-            }
-            MessageFilterRule::Invite { mode, invites } => {
-                let invite_regex = INVITE_REGEX.get().unwrap();
-                let mut invite_ids = invite_regex
-                    .captures_iter(&message.content)
-                    .map(|c| c.get(1).unwrap().as_str());
-                filter_values(mode, "invite", &mut invite_ids, invites)
-            }
-            MessageFilterRule::Link { mode, domains } => {
-                let link_regex = LINK_REGEX.get().unwrap();
-                let mut link_domains = link_regex
-                    .captures_iter(&message.content)
-                    .map(|c| c.get(1).unwrap().as_str());
-                filter_values(mode, "domain", &mut link_domains, domains)
             }
             MessageFilterRule::StickerId { mode, stickers } => {
                 if let Some(message_stickers) = &message.sticker_items {
@@ -220,24 +251,7 @@ impl config::MessageFilterRule {
 
                 Ok(())
             }
-            MessageFilterRule::EmojiName { names } => {
-                for capture in CUSTOM_EMOJI_REGEX
-                    .get()
-                    .unwrap()
-                    .captures_iter(&message.content)
-                {
-                    let name = capture.get(1).unwrap().as_str();
-                    let substring_match = names.captures(name);
-                    if let Some(substring_match) = substring_match {
-                        return Err(format!(
-                            "contains emoji with denied name substring {}",
-                            substring_match.get(0).unwrap().as_str()
-                        ));
-                    }
-                }
-
-                Ok(())
-            }
+            _ => self.filter_text(&message.content),
         }
     }
 }
@@ -255,7 +269,10 @@ impl ReactionFilter {
 impl config::ReactionFilterRule {
     fn filter_reaction(&self, reaction: &ReactionEmoji) -> FilterResult {
         match self {
-            ReactionFilterRule::Default { emoji: filtered_emoji, mode } => {
+            ReactionFilterRule::Default {
+                emoji: filtered_emoji,
+                mode,
+            } => {
                 if let ReactionEmoji::Standard { emoji } = reaction {
                     match mode {
                         FilterMode::AllowList => {
@@ -264,7 +281,7 @@ impl config::ReactionFilterRule {
                             } else {
                                 Ok(())
                             }
-                        },
+                        }
                         FilterMode::DenyList => {
                             if filtered_emoji.contains(&emoji) {
                                 Err(format!("reacted with denied emoji {}", emoji))
@@ -276,8 +293,11 @@ impl config::ReactionFilterRule {
                 } else {
                     Ok(())
                 }
-            },
-            ReactionFilterRule::CustomId { emoji: filtered_emoji, mode } => {
+            }
+            ReactionFilterRule::CustomId {
+                emoji: filtered_emoji,
+                mode,
+            } => {
                 if let ReactionEmoji::Custom { id, .. } = reaction {
                     match mode {
                         FilterMode::AllowList => {
@@ -286,7 +306,7 @@ impl config::ReactionFilterRule {
                             } else {
                                 Ok(())
                             }
-                        },
+                        }
                         FilterMode::DenyList => {
                             if filtered_emoji.contains(&id) {
                                 Err(format!("reacted with denied emoji {}", id))
@@ -298,9 +318,12 @@ impl config::ReactionFilterRule {
                 } else {
                     Ok(())
                 }
-            },
+            }
             ReactionFilterRule::CustomName { names } => {
-                if let ReactionEmoji::Custom { name: Some(name), .. } = reaction {
+                if let ReactionEmoji::Custom {
+                    name: Some(name), ..
+                } = reaction
+                {
                     if names.is_match(&name) {
                         Err(format!("reacted with denied emoji name {}", name))
                     } else {
@@ -615,7 +638,8 @@ async fn main() {
     let client = discordant::http::Client::new(&discord_token);
     let gateway_info = client.get_gateway_info().await.unwrap();
 
-    let intents = Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
+    let intents =
+        Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
 
     let client = std::sync::Arc::new(client);
     let cfg = std::sync::Arc::new(cfg);
@@ -625,11 +649,14 @@ async fn main() {
     {
         let mut stats = stats.write().await;
         for (guild_id, _) in &cfg.guilds {
-            stats.insert(*guild_id, Arc::new(Mutex::new(GuildStats {
-                filtered_messages: 0,
-                filtered_reactions: 0,
-                filtered_usernames: 0,
-            })));
+            stats.insert(
+                *guild_id,
+                Arc::new(Mutex::new(GuildStats {
+                    filtered_messages: 0,
+                    filtered_reactions: 0,
+                    filtered_usernames: 0,
+                })),
+            );
         }
     }
 
@@ -727,8 +754,10 @@ async fn main() {
                                         }
 
                                         let stats = stats.read().await;
-                                        let mut guild_stats = stats[&message.guild_id.unwrap()].lock().unwrap();
-                                        guild_stats.filtered_messages = guild_stats.filtered_messages.saturating_add(1);
+                                        let mut guild_stats =
+                                            stats[&message.guild_id.unwrap()].lock().unwrap();
+                                        guild_stats.filtered_messages =
+                                            guild_stats.filtered_messages.saturating_add(1);
                                     }
                                 }
                             }
@@ -740,9 +769,8 @@ async fn main() {
                         tokio::spawn(async move {
                             create_slash_commands(ready.application.id, &cfg, &client).await;
                         });
-                    },
+                    }
                     Event::InteractionCreate(interaction) => {
-                        log::debug!("INTERACTION: {:#?}", interaction);
                         let guild_id = interaction.guild_id.unwrap();
                         if let Some(data) = &interaction.data {
                             if let Some(options) = &data.options {
@@ -750,47 +778,157 @@ async fn main() {
                                     if subcommand.name == "stats" {
                                         let stats = stats.read().await;
                                         let guild_stats = stats[&guild_id].lock().unwrap();
-                                        let response = InteractionResponse::ChannelMessageWithSource {
-                                            tts: false,
-                                            content: None,
-                                            embeds: Some(vec![
-                                                Embed {
+                                        let response =
+                                            InteractionResponse::ChannelMessageWithSource {
+                                                tts: false,
+                                                content: None,
+                                                embeds: Some(vec![Embed {
                                                     title: Some("Chrysanthemum stats".to_owned()),
                                                     fields: Some(vec![
                                                         EmbedField {
                                                             name: "Filtered messages".to_owned(),
-                                                            value: guild_stats.filtered_messages.to_string(),
+                                                            value: guild_stats
+                                                                .filtered_messages
+                                                                .to_string(),
                                                             inline: Some(false),
                                                         },
                                                         EmbedField {
                                                             name: "Filtered reactions".to_owned(),
-                                                            value: guild_stats.filtered_reactions.to_string(),
+                                                            value: guild_stats
+                                                                .filtered_reactions
+                                                                .to_string(),
                                                             inline: Some(false),
                                                         },
                                                         EmbedField {
                                                             name: "Filtered usernames".to_owned(),
-                                                            value: guild_stats.filtered_usernames.to_string(),
+                                                            value: guild_stats
+                                                                .filtered_usernames
+                                                                .to_string(),
                                                             inline: Some(false),
                                                         },
                                                     ]),
                                                     ..Default::default()
-                                                }
-                                            ]),
-                                            flags: InteractionResponseMessageFlags::EMPHEMERAL,
-                                        };
+                                                }]),
+                                                flags: InteractionResponseMessageFlags::EMPHEMERAL,
+                                            };
 
                                         let client = client.clone();
                                         let interaction_token = interaction.token.clone();
                                         let interaction_id = interaction.id;
                                         tokio::spawn(async move {
-                                            client.send_interaction_response(interaction_id, &interaction_token, &response).await.unwrap();
+                                            client
+                                                .send_interaction_response(
+                                                    interaction_id,
+                                                    &interaction_token,
+                                                    &response,
+                                                )
+                                                .await
+                                                .unwrap();
                                         });
+                                    } else if subcommand.name == "test" {
+                                        let cfg = cfg.clone();
+                                        let client = client.clone();
+                                        let interaction_token = interaction.token.clone();
+                                        let interaction_id = interaction.id;
+
+                                        let text = match &subcommand.value {
+                                            discordant::types::InteractionDataOptionValue::Subcommand { options: Some(options) } => {
+                                                match options.first() {
+                                                    Some(text_option) => match &text_option.value {
+                                                        discordant::types::InteractionDataOptionValue::String { value } => Some(value.clone()),
+                                                        _ => None,
+                                                    },
+                                                    _ => None,
+                                                }
+                                            },
+                                            _ => None,
+                                        };
+
+                                        if let Some(text) = text {
+                                            if let Some(guild_config) = cfg.guilds.get(&guild_id) {
+                                                let response = if let Some(message_filters) =
+                                                    &guild_config.messages
+                                                {
+                                                    let result = message_filters.iter().map(|f| f.filter_text(&text)).find(|r| r.is_err()).unwrap_or(Ok(()));
+                                                    let (embed_title, embed_color) = if result.is_ok() {
+                                                        ("Success".to_owned(), 0x00FF00)
+                                                    } else {
+                                                        ("Failed".to_owned(), 0xFF0000)
+                                                    };
+
+                                                    let mut embed_fields = vec![
+                                                        EmbedField {
+                                                            name: "Text".to_owned(),
+                                                            value: text,
+                                                            inline: Some(false),
+                                                        },
+                                                    ];
+
+                                                    match result {
+                                                        Ok(()) => {},
+                                                        Err(reason) => {
+                                                            embed_fields.push(EmbedField {
+                                                                name: "Reason".to_owned(),
+                                                                value: reason,
+                                                                inline: Some(false),
+                                                            })
+                                                        }
+                                                    }
+
+                                                    InteractionResponse::ChannelMessageWithSource {
+                                                        tts: false,
+                                                        content: None,
+                                                        embeds: Some(vec![
+                                                            Embed {
+                                                                title: Some(embed_title),
+                                                                color: Some(embed_color),
+                                                                fields: Some(embed_fields),
+                                                                ..Default::default()
+                                                            }
+                                                        ]),
+                                                        flags: InteractionResponseMessageFlags::EMPHEMERAL,
+                                                    }
+                                                } else {
+                                                    InteractionResponse::ChannelMessageWithSource {
+                                                        tts: false,
+                                                        content: None,
+                                                        embeds: Some(vec![Embed {
+                                                            title: Some("Error".to_owned()),
+                                                            description: Some("This guild is not filtering messages".to_owned()),
+                                                            color: Some(0xFF0000),
+                                                            ..Default::default()
+                                                        }]),
+                                                        flags: InteractionResponseMessageFlags::EMPHEMERAL,
+                                                    }
+                                                };
+
+                                                tokio::spawn(async move {
+                                                    client
+                                                        .send_interaction_response(
+                                                            interaction_id,
+                                                            &interaction_token,
+                                                            &response,
+                                                        )
+                                                        .await
+                                                        .unwrap();
+                                                });
+                                            }
+                                        }
+
+                                        
                                     }
                                 }
                             }
                         }
-                    },
-                    Event::MessageReactionAdd { guild_id, channel_id, message_id, member, emoji, .. } => {
+                    }
+                    Event::MessageReactionAdd {
+                        guild_id,
+                        channel_id,
+                        message_id,
+                        member,
+                        emoji,
+                        ..
+                    } => {
                         let cfg = cfg.clone();
                         let client = client.clone();
                         let stats = stats.clone();
@@ -806,7 +944,7 @@ async fn main() {
                             }
 
                             let member = member.unwrap();
-            
+
                             if let Some(guild_config) = cfg.guilds.get(&guild_id) {
                                 if member.user.bot.unwrap_or(false) && !guild_config.include_bots {
                                     return;
@@ -814,26 +952,49 @@ async fn main() {
 
                                 if let Some(reaction_filters) = &guild_config.reactions {
                                     for filter in reaction_filters {
-                                        let scoping = filter.scoping.as_ref().or(guild_config.default_scoping.as_ref());
+                                        let scoping = filter
+                                            .scoping
+                                            .as_ref()
+                                            .or(guild_config.default_scoping.as_ref());
                                         if let Some(scoping) = scoping {
                                             if !scoping.is_included(channel_id, &member.roles) {
-                                                continue
+                                                continue;
                                             }
                                         }
 
                                         let filter_result = filter.filter_reaction(&emoji);
 
                                         if let Err(reason) = filter_result {
-                                            let actions = filter.actions.as_ref().or(guild_config.default_actions.as_ref());
+                                            let actions = filter
+                                                .actions
+                                                .as_ref()
+                                                .or(guild_config.default_actions.as_ref());
                                             if let Some(actions) = actions {
                                                 for action in actions {
                                                     match action {
-                                                        Action::Delete => { client.delete_reactions_for_emoji(channel_id, message_id, &emoji).await.unwrap(); },
-                                                        Action::SendMessage { channel_id: target_channel, content } => {
-                                                            let formatted_content = content.replace("$REASON", &reason);
-                                                            client.create_message(*target_channel, CreateMessagePayload {
-                                                                content: formatted_content,
-                                                            }).await.unwrap();
+                                                        Action::Delete => {
+                                                            client
+                                                                .delete_reactions_for_emoji(
+                                                                    channel_id, message_id, &emoji,
+                                                                )
+                                                                .await
+                                                                .unwrap();
+                                                        }
+                                                        Action::SendMessage {
+                                                            channel_id: target_channel,
+                                                            content,
+                                                        } => {
+                                                            let formatted_content =
+                                                                content.replace("$REASON", &reason);
+                                                            client
+                                                                .create_message(
+                                                                    *target_channel,
+                                                                    CreateMessagePayload {
+                                                                        content: formatted_content,
+                                                                    },
+                                                                )
+                                                                .await
+                                                                .unwrap();
                                                         }
                                                     }
                                                 }
@@ -841,7 +1002,8 @@ async fn main() {
 
                                             let stats = stats.read().await;
                                             let mut guild_stats = stats[&guild_id].lock().unwrap();
-                                            guild_stats.filtered_reactions = guild_stats.filtered_reactions.saturating_add(1);
+                                            guild_stats.filtered_reactions =
+                                                guild_stats.filtered_reactions.saturating_add(1);
                                         }
                                     }
                                 }
@@ -879,7 +1041,7 @@ mod test {
         };
 
         assert_eq!(
-            rule.check_match(&Message {
+            rule.filter_message(&Message {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
@@ -887,7 +1049,7 @@ mod test {
         );
 
         assert_eq!(
-            rule.check_match(&Message {
+            rule.filter_message(&Message {
                 content: "a".to_owned(),
                 ..Default::default()
             }),
@@ -902,7 +1064,7 @@ mod test {
         };
 
         assert_eq!(
-            rule.check_match(&Message {
+            rule.filter_message(&Message {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
@@ -910,7 +1072,7 @@ mod test {
         );
 
         assert_eq!(
-            rule.check_match(&Message {
+            rule.filter_message(&Message {
                 content: "a".to_owned(),
                 ..Default::default()
             }),
@@ -925,7 +1087,7 @@ mod test {
         let rule = MessageFilterRule::Zalgo;
 
         assert_eq!(
-            rule.check_match(&Message {
+            rule.filter_message(&Message {
                 content: "c".to_owned(),
                 ..Default::default()
             }),
@@ -933,7 +1095,7 @@ mod test {
         );
 
         assert_eq!(
-            rule.check_match(&Message {
+            rule.filter_message(&Message {
                 content: "t̸͈͈̒̑͛ê̷͓̜͎s̴̡͍̳͊t̴̪͙́̚".to_owned(),
                 ..Default::default()
             }),
@@ -971,19 +1133,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&png_message), Ok(()));
+        assert_eq!(allow_rule.filter_message(&png_message), Ok(()));
 
         assert_eq!(
-            allow_rule.check_match(&gif_message),
+            allow_rule.filter_message(&gif_message),
             Err("contains unallowed content type image/gif".to_owned())
         );
 
         assert_eq!(
-            deny_rule.check_match(&png_message),
+            deny_rule.filter_message(&png_message),
             Err("contains denied content type image/png".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&gif_message), Ok(()));
+        assert_eq!(deny_rule.filter_message(&gif_message), Ok(()));
     }
 
     #[test]
@@ -1008,10 +1170,10 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&unknown_message), Ok(()));
+        assert_eq!(allow_rule.filter_message(&unknown_message), Ok(()));
 
         assert_eq!(
-            deny_rule.check_match(&unknown_message),
+            deny_rule.filter_message(&unknown_message),
             Err("unknown content type for attachment".to_owned())
         );
     }
@@ -1040,19 +1202,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
+        assert_eq!(allow_rule.filter_message(&roblox_message), Ok(()));
 
         assert_eq!(
-            allow_rule.check_match(&not_roblox_message),
+            allow_rule.filter_message(&not_roblox_message),
             Err("contains unallowed invite asdf".to_owned())
         );
 
         assert_eq!(
-            deny_rule.check_match(&roblox_message),
+            deny_rule.filter_message(&roblox_message),
             Err("contains denied invite roblox".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
+        assert_eq!(deny_rule.filter_message(&not_roblox_message), Ok(()));
     }
 
     #[test]
@@ -1079,19 +1241,19 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&roblox_message), Ok(()));
+        assert_eq!(allow_rule.filter_message(&roblox_message), Ok(()));
 
         assert_eq!(
-            allow_rule.check_match(&not_roblox_message),
+            allow_rule.filter_message(&not_roblox_message),
             Err("contains unallowed domain discord.com".to_owned())
         );
 
         assert_eq!(
-            deny_rule.check_match(&roblox_message),
+            deny_rule.filter_message(&roblox_message),
             Err("contains denied domain roblox.com".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&not_roblox_message), Ok(()));
+        assert_eq!(deny_rule.filter_message(&not_roblox_message), Ok(()));
     }
 
     #[test]
@@ -1124,18 +1286,18 @@ mod test {
             ..Default::default()
         };
 
-        assert_eq!(allow_rule.check_match(&zero_sticker), Ok(()));
+        assert_eq!(allow_rule.filter_message(&zero_sticker), Ok(()));
 
         assert_eq!(
-            allow_rule.check_match(&non_zero_sticker),
+            allow_rule.filter_message(&non_zero_sticker),
             Err("contains unallowed sticker 1".to_owned())
         );
 
         assert_eq!(
-            deny_rule.check_match(&zero_sticker),
+            deny_rule.filter_message(&zero_sticker),
             Err("contains denied sticker 0".to_owned())
         );
 
-        assert_eq!(deny_rule.check_match(&non_zero_sticker), Ok(()));
+        assert_eq!(deny_rule.filter_message(&non_zero_sticker), Ok(()));
     }
 }
