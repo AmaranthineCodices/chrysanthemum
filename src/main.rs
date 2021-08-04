@@ -24,6 +24,7 @@ static LINK_REGEX: OnceCell<Regex> = OnceCell::new();
 static SPOILER_REGEX: OnceCell<Regex> = OnceCell::new();
 static EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
 static CUSTOM_EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
+static MENTION_REGEX: OnceCell<Regex> = OnceCell::new();
 
 impl Action {
     async fn do_action(
@@ -353,6 +354,7 @@ struct SpamRecord {
     links: u8,
     attachments: u8,
     spoilers: u8,
+    mentions: u8,
     sent_at: OffsetDateTime,
 }
 
@@ -373,6 +375,11 @@ impl SpamRecord {
             .unwrap()
             .find_iter(&message.content)
             .count();
+        let mentions = MENTION_REGEX
+            .get()
+            .unwrap()
+            .find_iter(&message.content)
+            .count();
 
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
@@ -384,6 +391,7 @@ impl SpamRecord {
             // 255 attachments, `as` will give us a u8 with a value of 255.
             attachments: message.attachments.len() as u8,
             spoilers: spoilers as u8,
+            mentions: mentions as u8,
             sent_at: OffsetDateTime::parse(&message.timestamp, time::Format::Rfc3339).unwrap(),
         }
     }
@@ -396,37 +404,48 @@ fn exceeds_spam_thresholds(
     current_record: &SpamRecord,
     config: &SpamFilter,
 ) -> FilterResult {
-    let (emoji_sum, link_sum, attachment_sum, spoiler_sum, matching_duplicates) = history
-        .iter()
-        // Start with a value of 1 for matching_duplicates because the current spam record
-        // is always a duplicate of itself.
-        .fold(
-            (
-                current_record.emoji,
-                current_record.links,
-                current_record.attachments,
-                current_record.spoilers,
-                1u8,
-            ),
-            |(total_emoji, total_links, total_attachments, total_spoilers, total_duplicates),
-             record| {
+    let (emoji_sum, link_sum, attachment_sum, spoiler_sum, mention_sum, matching_duplicates) =
+        history
+            .iter()
+            // Start with a value of 1 for matching_duplicates because the current spam record
+            // is always a duplicate of itself.
+            .fold(
                 (
-                    total_emoji.saturating_add(record.emoji),
-                    total_links.saturating_add(record.links),
-                    total_attachments.saturating_add(record.attachments),
-                    total_spoilers.saturating_add(record.spoilers),
-                    total_duplicates
-                        .saturating_add((record.content == current_record.content) as u8),
-                )
-            },
-        );
+                    current_record.emoji,
+                    current_record.links,
+                    current_record.attachments,
+                    current_record.spoilers,
+                    current_record.mentions,
+                    1u8,
+                ),
+                |(
+                    total_emoji,
+                    total_links,
+                    total_attachments,
+                    total_spoilers,
+                    total_mentions,
+                    total_duplicates,
+                ),
+                 record| {
+                    (
+                        total_emoji.saturating_add(record.emoji),
+                        total_links.saturating_add(record.links),
+                        total_attachments.saturating_add(record.attachments),
+                        total_spoilers.saturating_add(record.spoilers),
+                        total_mentions.saturating_add(record.mentions),
+                        total_duplicates
+                            .saturating_add((record.content == current_record.content) as u8),
+                    )
+                },
+            );
 
     log::trace!(
-        "Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} duplicates",
+        "Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} mentions, {} duplicates",
         emoji_sum,
         link_sum,
         attachment_sum,
         spoiler_sum,
+        mention_sum,
         matching_duplicates
     );
 
@@ -445,6 +464,11 @@ fn exceeds_spam_thresholds(
         && current_record.spoilers > 0
     {
         Err("sent too many spoilers".to_owned())
+    } else if config.mentions.is_some()
+        && mention_sum > config.mentions.unwrap()
+        && current_record.mentions > 0
+    {
+        Err("sent too many mentions".to_owned())
     } else if config.duplicates.is_some() && matching_duplicates > config.duplicates.unwrap() {
         Err("sent too many duplicate messages".to_owned())
     } else {
@@ -465,6 +489,7 @@ fn init_globals() {
         Regex::new("\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}").unwrap(),
     );
     let _ = CUSTOM_EMOJI_REGEX.set(Regex::new("<a?:([^:]+):(\\d+)>").unwrap());
+    let _ = MENTION_REGEX.set(Regex::new("<@[!&]?\\d+>").unwrap());
 }
 
 async fn create_slash_commands(app_id: Snowflake, config: &Config, client: &Client) {
@@ -849,23 +874,26 @@ async fn main() {
                                                 let response = if let Some(message_filters) =
                                                     &guild_config.messages
                                                 {
-                                                    let result = message_filters.iter().map(|f| f.filter_text(&text)).find(|r| r.is_err()).unwrap_or(Ok(()));
-                                                    let (embed_title, embed_color) = if result.is_ok() {
-                                                        ("Success".to_owned(), 0x00FF00)
-                                                    } else {
-                                                        ("Failed".to_owned(), 0xFF0000)
-                                                    };
+                                                    let result = message_filters
+                                                        .iter()
+                                                        .map(|f| f.filter_text(&text))
+                                                        .find(|r| r.is_err())
+                                                        .unwrap_or(Ok(()));
+                                                    let (embed_title, embed_color) =
+                                                        if result.is_ok() {
+                                                            ("Success".to_owned(), 0x00FF00)
+                                                        } else {
+                                                            ("Failed".to_owned(), 0xFF0000)
+                                                        };
 
-                                                    let mut embed_fields = vec![
-                                                        EmbedField {
-                                                            name: "Text".to_owned(),
-                                                            value: text,
-                                                            inline: Some(false),
-                                                        },
-                                                    ];
+                                                    let mut embed_fields = vec![EmbedField {
+                                                        name: "Text".to_owned(),
+                                                        value: text,
+                                                        inline: Some(false),
+                                                    }];
 
                                                     match result {
-                                                        Ok(()) => {},
+                                                        Ok(()) => {}
                                                         Err(reason) => {
                                                             embed_fields.push(EmbedField {
                                                                 name: "Reason".to_owned(),
@@ -914,8 +942,6 @@ async fn main() {
                                                 });
                                             }
                                         }
-
-                                        
                                     }
                                 }
                             }

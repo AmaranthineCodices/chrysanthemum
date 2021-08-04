@@ -174,6 +174,8 @@ pub struct SpamFilter {
     pub attachments: Option<u8>,
     /// How many spoilers in a given interval constitute spam.
     pub spoilers: Option<u8>,
+    /// How many mentions in a given interval constitute spam.
+    pub mentions: Option<u8>,
     /// How long, in seconds, to consider messages for spam.
     pub interval: u16,
     /// What actions to take when a message is considered spam.
