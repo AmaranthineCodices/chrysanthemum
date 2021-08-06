@@ -16,6 +16,7 @@ use tokio::sync::RwLock;
 
 use config::*;
 
+mod action;
 mod config;
 
 static ZALGO_REGEX: OnceCell<Regex> = OnceCell::new();
@@ -25,42 +26,6 @@ static SPOILER_REGEX: OnceCell<Regex> = OnceCell::new();
 static EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
 static CUSTOM_EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
 static MENTION_REGEX: OnceCell<Regex> = OnceCell::new();
-
-impl Action {
-    async fn do_action(
-        &self,
-        fail_reason: &str,
-        message: &Message,
-        client: &Client,
-    ) -> Result<(), DiscordHttpError> {
-        match self {
-            Action::Delete => client.delete_message(message.channel_id, message.id).await,
-            Action::SendMessage {
-                channel_id,
-                content,
-            } => {
-                let formatted_content = content.clone();
-                let formatted_content =
-                    formatted_content.replace("$USER_ID", &message.author.id.to_string());
-                let formatted_content = formatted_content.replace("$REASON", fail_reason);
-                // Do MESSAGE_CONTENT replacing last, to avoid a situation where
-                // we replace part of the message content with another template
-                // variable.
-                let formatted_content =
-                    formatted_content.replace("$MESSAGE_CONTENT", &message.content);
-                client
-                    .create_message(
-                        *channel_id,
-                        CreateMessagePayload {
-                            content: formatted_content,
-                        },
-                    )
-                    .await
-                    .map(|_m| ())
-            }
-        }
-    }
-}
 
 type FilterResult = Result<(), String>;
 
@@ -998,7 +963,7 @@ async fn main() {
                                             if let Some(actions) = actions {
                                                 for action in actions {
                                                     match action {
-                                                        Action::Delete => {
+                                                        MessageFilterAction::Delete => {
                                                             client
                                                                 .delete_reactions_for_emoji(
                                                                     channel_id, message_id, &emoji,
@@ -1006,7 +971,7 @@ async fn main() {
                                                                 .await
                                                                 .unwrap();
                                                         }
-                                                        Action::SendMessage {
+                                                        MessageFilterAction::SendMessage {
                                                             channel_id: target_channel,
                                                             content,
                                                         } => {

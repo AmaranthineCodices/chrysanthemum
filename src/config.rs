@@ -86,13 +86,25 @@ where
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
-pub enum Action {
+pub enum MessageFilterAction {
     /// Delete the offending piece of content.
     Delete,
     /// Send a message to a channel.
     SendMessage {
         channel_id: Snowflake,
         content: String,
+        batch: Option<bool>,
+    },
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum ReactionFilterAction {
+    Delete,
+    SendMessage {
+        channel_id: Snowflake,
+        content: String,
+        batch: Option<bool>,
     },
 }
 
@@ -179,7 +191,7 @@ pub struct SpamFilter {
     /// How long, in seconds, to consider messages for spam.
     pub interval: u16,
     /// What actions to take when a message is considered spam.
-    pub actions: Option<Vec<Action>>,
+    pub actions: Option<Vec<MessageFilterAction>>,
     /// Scoping rules to apply to the spam filter.
     pub scoping: Option<Scoping>,
 }
@@ -191,7 +203,7 @@ pub struct MessageFilter {
     /// What scoping to use for this rule.
     pub scoping: Option<Scoping>,
     /// What actions to take when a message matches a filter.
-    pub actions: Option<Vec<Action>>,
+    pub actions: Option<Vec<MessageFilterAction>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -220,7 +232,7 @@ pub enum ReactionFilterRule {
 pub struct ReactionFilter {
     pub rules: Vec<ReactionFilterRule>,
     pub scoping: Option<Scoping>,
-    pub actions: Option<Vec<Action>>,
+    pub actions: Option<Vec<MessageFilterAction>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -273,7 +285,7 @@ pub struct GuildConfig {
     pub notifications: Option<Notifications>,
     pub slash_commands: Option<SlashCommands>,
     pub default_scoping: Option<Scoping>,
-    pub default_actions: Option<Vec<Action>>,
+    pub default_actions: Option<Vec<MessageFilterAction>>,
     pub messages: Option<Vec<MessageFilter>>,
     pub reactions: Option<Vec<ReactionFilter>>,
     pub spam: Option<SpamFilter>,

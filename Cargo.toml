@@ -18,6 +18,7 @@ discordant = { path = "../discordant" }
 once_cell = "1.8"
 time = "0.2"
 ctrlc = { version = "3", features = ["termination"] }
+reqwest = "0.11"
 
 [patch.crates-io]
 serde = { path = "../serde/serde", features = ["derive"] }

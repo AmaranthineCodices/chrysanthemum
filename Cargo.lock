@@ -102,6 +102,7 @@ dependencies = [
  "once_cell",
  "pretty_env_logger",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_regex",
