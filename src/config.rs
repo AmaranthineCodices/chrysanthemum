@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use discordant::types::Snowflake;
+use twilight_model::{channel::message::sticker::StickerId, id::{GuildId, RoleId, ChannelId, EmojiId}};
 
 use regex::Regex;
 
@@ -91,7 +91,7 @@ pub enum MessageFilterAction {
     Delete,
     /// Send a message to a channel.
     SendMessage {
-        channel_id: Snowflake,
+        channel_id: ChannelId,
         content: String,
         batch: Option<bool>,
     },
@@ -102,7 +102,7 @@ pub enum MessageFilterAction {
 pub enum ReactionFilterAction {
     Delete,
     SendMessage {
-        channel_id: Snowflake,
+        channel_id: ChannelId,
         content: String,
         batch: Option<bool>,
     },
@@ -119,11 +119,11 @@ pub enum FilterMode {
 #[derive(Deserialize, Debug, Default)]
 pub struct Scoping {
     /// Which channels to exclude.
-    pub exclude_channels: Option<Vec<Snowflake>>,
+    pub exclude_channels: Option<Vec<ChannelId>>,
     /// Which channels to include.
-    pub include_channels: Option<Vec<Snowflake>>,
+    pub include_channels: Option<Vec<ChannelId>>,
     /// Which roles to exclude.
-    pub exclude_roles: Option<Vec<Snowflake>>,
+    pub exclude_roles: Option<Vec<RoleId>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -158,7 +158,7 @@ pub enum MessageFilterRule {
     },
     StickerId {
         mode: FilterMode,
-        stickers: Vec<Snowflake>,
+        stickers: Vec<StickerId>,
     },
     StickerName {
         // Note: In the config format, this is an array of strings, not one
@@ -217,7 +217,7 @@ pub enum ReactionFilterRule {
     /// Filter custom emoji by ID.
     CustomId {
         mode: FilterMode,
-        emoji: Vec<Snowflake>,
+        emoji: Vec<EmojiId>,
     },
     /// Filter custom emoji by name.
     CustomName {
@@ -238,15 +238,15 @@ pub struct ReactionFilter {
 #[derive(Deserialize, Debug)]
 pub struct SlashCommands {
     /// Which roles are allowed to use slash commands.
-    pub roles: Vec<Snowflake>,
+    pub roles: Vec<RoleId>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct Notifications {
     /// Which channel to send notifications to.
-    pub channel: Snowflake,
+    pub channel: ChannelId,
     /// Which roles to ping for notifications.
-    pub ping_roles: Option<Vec<Snowflake>>,
+    pub ping_roles: Option<Vec<RoleId>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -267,7 +267,7 @@ pub enum UsernameFilterRule {
 #[derive(Deserialize, Debug)]
 pub enum UsernameFilterAction {
     SendMessage {
-        channel_id: Snowflake,
+        channel_id: ChannelId,
         content: String,
     },
 }
@@ -299,7 +299,7 @@ pub struct GuildConfig {
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    pub guilds: HashMap<Snowflake, GuildConfig>,
+    pub guilds: HashMap<GuildId, GuildConfig>,
 }
 
 fn validate_scoping(scoping: &Scoping, context: &str, errors: &mut Vec<String>) {

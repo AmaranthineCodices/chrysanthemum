@@ -2,9 +2,10 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use discordant::types::{
-    Message, ReactionEmoji, Snowflake,
-};
+
+use twilight_model::channel::{ReactionType, message::Message};
+use twilight_model::id::{ChannelId, RoleId, UserId};
+
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use time::OffsetDateTime;
@@ -65,7 +66,7 @@ where
 }
 
 impl config::Scoping {
-    pub fn is_included(&self, channel: Snowflake, author_roles: &Vec<Snowflake>) -> bool {
+    pub fn is_included(&self, channel: ChannelId, author_roles: &Vec<RoleId>) -> bool {
         if self.include_channels.is_some() {
             if self
                 .include_channels
@@ -200,27 +201,21 @@ impl config::MessageFilterRule {
                 filter_values(mode, "content type", &mut attachment_types, types)
             }
             config::MessageFilterRule::StickerId { mode, stickers } => {
-                if let Some(message_stickers) = &message.sticker_items {
-                    filter_values(
-                        mode,
-                        "sticker",
-                        &mut message_stickers.iter().map(|s| s.id),
-                        stickers,
-                    )
-                } else {
-                    Ok(())
-                }
+                filter_values(
+                    mode,
+                    "sticker",
+                    &mut message.sticker_items.iter().map(|s| s.id),
+                    stickers,
+                )
             }
             config::MessageFilterRule::StickerName { stickers } => {
-                if let Some(message_stickers) = &message.sticker_items {
-                    for sticker in message_stickers {
-                        let substring_match = stickers.captures_iter(&sticker.name).nth(0);
-                        if let Some(substring_match) = substring_match {
-                            return Err(format!(
-                                "contains sticker with denied name substring {}",
-                                substring_match.get(0).unwrap().as_str()
-                            ));
-                        }
+                for sticker in &message.sticker_items {
+                    let substring_match = stickers.captures_iter(&sticker.name).nth(0);
+                    if let Some(substring_match) = substring_match {
+                        return Err(format!(
+                            "contains sticker with denied name substring {}",
+                            substring_match.get(0).unwrap().as_str()
+                        ));
                     }
                 }
 
@@ -232,7 +227,7 @@ impl config::MessageFilterRule {
 }
 
 impl config::ReactionFilter {
-    pub fn filter_reaction(&self, reaction: &ReactionEmoji) -> FilterResult {
+    pub fn filter_reaction(&self, reaction: &ReactionType) -> FilterResult {
         self.rules
             .iter()
             .map(|f| f.filter_reaction(&reaction))
@@ -242,24 +237,24 @@ impl config::ReactionFilter {
 }
 
 impl config::ReactionFilterRule {
-    pub fn filter_reaction(&self, reaction: &ReactionEmoji) -> FilterResult {
+    pub fn filter_reaction(&self, reaction: &ReactionType) -> FilterResult {
         match self {
             config::ReactionFilterRule::Default {
                 emoji: filtered_emoji,
                 mode,
             } => {
-                if let ReactionEmoji::Standard { emoji } = reaction {
+                if let ReactionType::Unicode { name } = reaction {
                     match mode {
                         config::FilterMode::AllowList => {
-                            if !filtered_emoji.contains(&emoji) {
-                                Err(format!("reacted with unallowed emoji {}", emoji))
+                            if !filtered_emoji.contains(&name) {
+                                Err(format!("reacted with unallowed emoji {}", name))
                             } else {
                                 Ok(())
                             }
                         }
                         config::FilterMode::DenyList => {
-                            if filtered_emoji.contains(&emoji) {
-                                Err(format!("reacted with denied emoji {}", emoji))
+                            if filtered_emoji.contains(&name) {
+                                Err(format!("reacted with denied emoji {}", name))
                             } else {
                                 Ok(())
                             }
@@ -273,7 +268,7 @@ impl config::ReactionFilterRule {
                 emoji: filtered_emoji,
                 mode,
             } => {
-                if let ReactionEmoji::Custom { id, .. } = reaction {
+                if let ReactionType::Custom { id, .. } = reaction {
                     match mode {
                         config::FilterMode::AllowList => {
                             if !filtered_emoji.contains(&id) {
@@ -295,7 +290,7 @@ impl config::ReactionFilterRule {
                 }
             }
             config::ReactionFilterRule::CustomName { names } => {
-                if let ReactionEmoji::Custom {
+                if let ReactionType::Custom {
                     name: Some(name), ..
                 } = reaction
                 {
@@ -313,7 +308,7 @@ impl config::ReactionFilterRule {
 }
 
 #[derive(Debug)]
-struct SpamRecord {
+pub struct SpamRecord {
     content: String,
     emoji: u8,
     links: u8,
@@ -357,12 +352,12 @@ impl SpamRecord {
             attachments: message.attachments.len() as u8,
             spoilers: spoilers as u8,
             mentions: mentions as u8,
-            sent_at: OffsetDateTime::parse(&message.timestamp, time::Format::Rfc3339).unwrap(),
+            sent_at: OffsetDateTime::from_unix_timestamp_nanos((message.timestamp.as_micros() as i128) * 1000),
         }
     }
 }
 
-pub type SpamHistory = HashMap<Snowflake, Arc<Mutex<VecDeque<SpamRecord>>>>;
+pub type SpamHistory = HashMap<UserId, Arc<Mutex<VecDeque<SpamRecord>>>>;
 
 fn exceeds_spam_thresholds(
     history: &VecDeque<SpamRecord>,
