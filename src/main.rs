@@ -16,6 +16,7 @@ use twilight_gateway::Event;
 use twilight_http::Client as HttpClient;
 use twilight_http::request::prelude::RequestReactionType;
 use twilight_mention::Mention;
+use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::ReactionType;
 use twilight_model::gateway::Intents;
 
@@ -23,6 +24,7 @@ use color_eyre::eyre::Result;
 
 use config::*;
 
+mod command;
 mod config;
 mod filter;
 
@@ -35,12 +37,13 @@ struct GuildStats {
 
 type Stats = HashMap<twilight_model::id::GuildId, Arc<Mutex<GuildStats>>>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct State {
     stats: Arc<RwLock<Stats>>,
     cfg: Arc<Config>,
     http: Arc<HttpClient>,
     spam_history: Arc<RwLock<SpamHistory>>,
+    cmd_state: Arc<RwLock<Option<command::CommandState>>>,
 }
 
 #[cfg(debug_assertions)]
@@ -126,6 +129,7 @@ async fn main() -> Result<()> {
         spam_history,
         cfg,
         stats,
+        cmd_state: Arc::new(RwLock::new(None)),
     };
 
     tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
@@ -396,6 +400,29 @@ async fn handle_event(event: Event, state: State) {
                     }
                 }
             }.instrument(span).await;
+        },
+        Event::Ready(ready) => {
+            state.http.set_application_id(ready.application.id);
+            let command_state = command::create_commands(state.clone()).await;
+
+            if let Err(err) = command_state {
+                tracing::error!(?err, "Unable to create slash commands");
+            }
+            else
+            {
+                let command_state = command_state.unwrap();
+                let mut state_command_state = state.cmd_state.write().await;
+                *state_command_state = Some(command_state);
+            }
+        },
+        Event::InteractionCreate(interaction) => {
+            let interaction = interaction.0;
+            match interaction {
+                Interaction::ApplicationCommand(cmd) => {
+                    command::handle_command(state.clone(), cmd).await;
+                },
+                _ => {},
+            }
         }
         _ => {},
     }

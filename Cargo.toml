@@ -25,12 +25,12 @@ color-eyre = "0.5.11"
 thiserror = "1.0.30"
 
 twilight-gateway = "0.7.1"
-twilight-interactions = "0.7.1"
 twilight-http = "0.7.1"
 twilight-model = "0.7.1"
 twilight-cache-inmemory = "0.7.1"
 twilight-embed-builder = "0.7.1"
 twilight-mention = "0.7.0"
+twilight-util = { version = "0.7.0", features = ["builder"] }
 
 [profile.dev.package.backtrace]
 opt-level = 3
