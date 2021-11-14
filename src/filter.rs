@@ -399,7 +399,7 @@ fn exceeds_spam_thresholds(
                 },
             );
 
-    log::trace!(
+    tracing::trace!(
         "Spam summary: {} emoji, {} links, {} attachments, {} spoilers, {} mentions, {} duplicates",
         emoji_sum,
         link_sum,
@@ -477,7 +477,7 @@ pub async fn check_spam_record(
         }
     }
 
-    log::trace!(
+    tracing::trace!(
         "Cleared {} spam records for user {}",
         cleared_count,
         message.author.id
