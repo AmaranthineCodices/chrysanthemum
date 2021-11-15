@@ -26,6 +26,7 @@ use config::*;
 
 mod command;
 mod config;
+mod confusable;
 mod filter;
 
 #[derive(Debug)]

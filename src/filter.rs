@@ -125,7 +125,9 @@ impl config::MessageFilterRule {
     pub fn filter_text(&self, text: &str) -> FilterResult {
         match self {
             config::MessageFilterRule::Words { words } => {
-                if let Some(captures) = words.captures(text) {
+                let skeleton = crate::confusable::skeletonize(text);
+
+                if let Some(captures) = words.captures(&skeleton) {
                     Err(format!(
                         "contains word {}",
                         captures.get(1).unwrap().as_str()
@@ -135,8 +137,10 @@ impl config::MessageFilterRule {
                 }
             }
             config::MessageFilterRule::Regex { regexes } => {
+                let skeleton = crate::confusable::skeletonize(text);
+
                 for regex in regexes {
-                    if regex.is_match(text) {
+                    if regex.is_match(&skeleton) {
                         return Err(format!("matches regex {}", regex));
                     }
                 }
