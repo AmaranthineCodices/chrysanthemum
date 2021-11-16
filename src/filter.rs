@@ -56,10 +56,10 @@ where
             // sometimes pass Vec<String> as filter_values, where T is &str -
             // contains isn't smart enough to handle this case.
             .find(|v| !filter_values.iter().any(|f| f == v))
-            .map(|v| Err(format!("contains unallowed {} {}", context, v))),
+            .map(|v| Err(format!("contains unallowed {} `{}`", context, v))),
         config::FilterMode::DenyList => values
             .find(|v| filter_values.iter().any(|f| f == v))
-            .map(|v| Err(format!("contains denied {} {}", context, v))),
+            .map(|v| Err(format!("contains denied {} `{}`", context, v))),
     };
 
     result.unwrap_or(Ok(()))
@@ -129,7 +129,7 @@ impl config::MessageFilterRule {
 
                 if let Some(captures) = words.captures(&skeleton) {
                     Err(format!(
-                        "contains word {}",
+                        "contains word `{}`",
                         captures.get(1).unwrap().as_str()
                     ))
                 } else {
@@ -141,7 +141,7 @@ impl config::MessageFilterRule {
 
                 for regex in regexes {
                     if regex.is_match(&skeleton) {
-                        return Err(format!("matches regex {}", regex));
+                        return Err(format!("matches regex `{}`", regex));
                     }
                 }
 
@@ -217,7 +217,7 @@ impl config::MessageFilterRule {
                     let substring_match = stickers.captures_iter(&sticker.name).nth(0);
                     if let Some(substring_match) = substring_match {
                         return Err(format!(
-                            "contains sticker with denied name substring {}",
+                            "contains sticker with denied name substring `{}`",
                             substring_match.get(0).unwrap().as_str()
                         ));
                     }
