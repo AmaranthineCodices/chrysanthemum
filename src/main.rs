@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use chrono::{DateTime, Utc};
 use filter::SpamHistory;
-use regex::Regex;
+use influxdb::InfluxDbWriteable;
+use reqwest::header::HeaderValue;
 use tokio::sync::RwLock;
 
 use futures::stream::StreamExt;
@@ -45,6 +48,16 @@ struct State {
     http: Arc<HttpClient>,
     spam_history: Arc<RwLock<SpamHistory>>,
     cmd_state: Arc<RwLock<Option<command::CommandState>>>,
+    influx_client: Arc<Option<influxdb::Client>>,
+}
+
+#[derive(Debug, InfluxDbWriteable)]
+struct EventReport {
+    time: DateTime<Utc>,
+    guild: String,
+    channel: String,
+    time_taken: f64,
+    #[influxdb(tag)] development: bool,
 }
 
 #[cfg(debug_assertions)]
@@ -85,11 +98,7 @@ async fn main() -> Result<()> {
         .nth(1)
         .unwrap_or_else(|| "chrysanthemum.cfg.json".to_owned());
 
-    // Ugly: Strip out single-line comments from the source. serde_json doesn't
-    // support comments, but config files kind of need them.
-    let comment_regex = Regex::new("//[^\n]*\n").unwrap();
-    let cfg_str = std::fs::read_to_string(&config_path).expect("couldn't read config file");
-    let cfg_json = comment_regex.replace_all(&cfg_str, "");
+    let cfg_json = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg: Config = serde_json::from_str(&cfg_json).expect("Couldn't deserialize config");
     let cfg_validate_result = config::validate_config(&cfg);
     if cfg_validate_result.is_err() {
@@ -97,6 +106,16 @@ async fn main() -> Result<()> {
         tracing::error!("Configuration errors were encountered: {:#?}", errs);
         return Err(eyre::eyre!("{:#?}", errs));
     }
+
+    let influx_client = if let Some(influx_cfg) = &cfg.influx {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("Authorization", HeaderValue::from_str(&format!("Token {}", &influx_cfg.token)).unwrap());
+        let reqwest_client = reqwest::Client::builder().default_headers(headers).build().unwrap();
+        let influx_client = influxdb::Client::new(&influx_cfg.url, &influx_cfg.database).with_http_client(reqwest_client);
+        Some(influx_client)
+    } else {
+        None
+    };
 
     let intents =
         Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
@@ -131,22 +150,67 @@ async fn main() -> Result<()> {
         cfg,
         stats,
         cmd_state: Arc::new(RwLock::new(None)),
+        influx_client: Arc::new(influx_client),
     };
 
     tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
 
     while let Some(event) = events.next().await {
         cache.update(&event);
-        tokio::spawn(handle_event(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
+        tokio::spawn(handle_event_wrapper(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
     }
 
     Ok(())
 }
 
-async fn handle_event(event: Event, state: State) {
-    match event {
+async fn handle_event_wrapper(event: Event, state: State) {
+    let start = Instant::now();
+    handle_event(&event, state.clone()).await;
+    let end = Instant::now();
+    let time = end - start;
+
+    let (guild_id, channel_id) = match event {
         Event::MessageCreate(message) => {
             let message = message.0;
+            
+            (message.guild_id.unwrap(), message.channel_id)
+        },
+        Event::ReactionAdd(rxn) => {
+            let rxn = rxn.0;
+            (rxn.guild_id.unwrap(), rxn.channel_id)
+        },
+        _ => return,
+    };
+
+    #[cfg(debug_assertions)]
+    let development = true;
+    #[cfg(not(debug_assertions))]
+    let development = false;
+
+    let report = EventReport {
+        time: Utc::now(),
+        time_taken: time.as_secs_f64(),
+        guild: guild_id.to_string(),
+        channel: channel_id.to_string(),
+        development,
+    };
+
+    if let Some(influx_client) = state.influx_client.as_ref() {
+        tracing::trace!("Sending Influx report {:?}", report);
+
+        let result = influx_client.query(report.into_query("event_report")).await;
+        if let Err(err) = result {
+            tracing::error!("Error sending report to InfluxDB: {:?}", err);
+        } else {
+            tracing::trace!("Influx report sent successfully! Result: {:?}", result);
+        }
+    }
+}
+
+async fn handle_event(event: &Event, state: State) {
+    match event {
+        Event::MessageCreate(message) => {
+            let message = &message.0;
             let span = tracing::debug_span!("Filtering message", %message.content);
 
             async move {
@@ -278,7 +342,7 @@ async fn handle_event(event: Event, state: State) {
             }.instrument(span).await;
         },
         Event::ReactionAdd(rxn) => {
-            let rxn = rxn.0;
+            let rxn = &rxn.0;
             let span = tracing::debug_span!("Filtering reaction", reaction.emoji = ?rxn.emoji);
 
             async move {
@@ -294,7 +358,7 @@ async fn handle_event(event: Event, state: State) {
                     return;
                 }
     
-                let member = rxn.member.unwrap();
+                let member = rxn.member.as_ref().unwrap();
     
                 if let Some(guild_config) = state.cfg.guilds.get(&guild_id) {
                     if member.user.bot && !guild_config.include_bots {
@@ -417,10 +481,10 @@ async fn handle_event(event: Event, state: State) {
             }
         },
         Event::InteractionCreate(interaction) => {
-            let interaction = interaction.0;
+            let interaction = &interaction.0;
             match interaction {
                 Interaction::ApplicationCommand(cmd) => {
-                    command::handle_command(state.clone(), cmd).await;
+                    command::handle_command(state.clone(), cmd.as_ref()).await;
                 },
                 _ => {},
             }

@@ -298,8 +298,16 @@ pub struct GuildConfig {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct InfluxConfig {
+    pub url: String,
+    pub database: String,
+    pub token: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Config {
     pub guilds: HashMap<GuildId, GuildConfig>,
+    pub influx: Option<InfluxConfig>,
 }
 
 fn validate_scoping(scoping: &Scoping, context: &str, errors: &mut Vec<String>) {

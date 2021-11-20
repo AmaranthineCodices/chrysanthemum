@@ -1,14 +1,12 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
-
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use twilight_model::channel::{ReactionType, message::Message};
 use twilight_model::id::{ChannelId, RoleId, UserId};
 
 use once_cell::sync::OnceCell;
 use regex::Regex;
-use time::OffsetDateTime;
 use tokio::sync::RwLock;
 
 use crate::config;
@@ -319,7 +317,7 @@ pub struct SpamRecord {
     attachments: u8,
     spoilers: u8,
     mentions: u8,
-    sent_at: OffsetDateTime,
+    sent_at: u64,
 }
 
 impl SpamRecord {
@@ -356,7 +354,7 @@ impl SpamRecord {
             attachments: message.attachments.len() as u8,
             spoilers: spoilers as u8,
             mentions: mentions as u8,
-            sent_at: OffsetDateTime::from_unix_timestamp_nanos((message.timestamp.as_micros() as i128) * 1000),
+            sent_at: message.timestamp.as_micros(),
         }
     }
 }
@@ -464,13 +462,12 @@ pub async fn check_spam_record(
 
     let mut spam_history = author_spam_history.lock().unwrap();
 
-    let interval = Duration::from_secs(config.interval as u64);
-    let now = OffsetDateTime::now_utc();
+    let now = (Utc::now().timestamp_millis() as u64) * 1000;
     let mut cleared_count = 0;
     loop {
         match spam_history.front() {
             Some(front) => {
-                if now - front.sent_at > interval {
+                if now - front.sent_at > (config.interval as u64) * 1_000_000 {
                     spam_history.pop_front();
                     cleared_count += 1;
                 } else {

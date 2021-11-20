@@ -81,7 +81,7 @@ pub(crate) async fn create_commands(state: crate::State) -> Result<CommandState>
 
 pub(crate) async fn handle_command(
     state: crate::State,
-    cmd: Box<ApplicationCommand>,
+    cmd: &ApplicationCommand,
 ) -> Result<()> {
     if cmd.guild_id.is_none() {
         return Ok(());
