@@ -305,9 +305,15 @@ pub struct InfluxConfig {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct SentryConfig {
+    pub url: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct Config {
     pub guilds: HashMap<GuildId, GuildConfig>,
     pub influx: Option<InfluxConfig>,
+    pub sentry: Option<SentryConfig>,
 }
 
 fn validate_scoping(scoping: &Scoping, context: &str, errors: &mut Vec<String>) {

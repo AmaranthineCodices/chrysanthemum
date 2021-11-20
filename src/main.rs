@@ -108,6 +108,15 @@ async fn main() -> Result<()> {
         return Err(eyre::eyre!("{:#?}", errs));
     }
 
+    let _sentry_guard = if let Some(sentry_config) = &cfg.sentry {
+        Some(sentry::init((sentry_config.url.clone(), sentry::ClientOptions {
+            release: sentry::release_name!(),
+            ..Default::default()
+        })))
+    } else {
+        None
+    };
+
     let influx_client = if let Some(influx_cfg) = &cfg.influx {
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert("Authorization", HeaderValue::from_str(&format!("Token {}", &influx_cfg.token)).unwrap());
