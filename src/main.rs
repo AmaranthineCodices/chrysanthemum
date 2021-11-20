@@ -52,11 +52,12 @@ struct State {
 }
 
 #[derive(Debug, InfluxDbWriteable)]
-struct EventReport {
+struct EventTimingReport {
     time: DateTime<Utc>,
     guild: String,
     channel: String,
     time_taken: f64,
+    #[influxdb(tag)] action_kind: &'static str,
     #[influxdb(tag)] development: bool,
 }
 
@@ -169,15 +170,15 @@ async fn handle_event_wrapper(event: Event, state: State) {
     let end = Instant::now();
     let time = end - start;
 
-    let (guild_id, channel_id) = match event {
+    let (guild_id, channel_id, action_kind) = match event {
         Event::MessageCreate(message) => {
             let message = message.0;
             
-            (message.guild_id.unwrap(), message.channel_id)
+            (message.guild_id.unwrap(), message.channel_id, "message create")
         },
         Event::ReactionAdd(rxn) => {
             let rxn = rxn.0;
-            (rxn.guild_id.unwrap(), rxn.channel_id)
+            (rxn.guild_id.unwrap(), rxn.channel_id, "reaction")
         },
         _ => return,
     };
@@ -187,11 +188,12 @@ async fn handle_event_wrapper(event: Event, state: State) {
     #[cfg(not(debug_assertions))]
     let development = false;
 
-    let report = EventReport {
+    let report = EventTimingReport {
         time: Utc::now(),
         time_taken: time.as_secs_f64(),
         guild: guild_id.to_string(),
         channel: channel_id.to_string(),
+        action_kind,
         development,
     };
 
