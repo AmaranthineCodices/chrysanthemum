@@ -134,6 +134,18 @@ impl config::MessageFilterRule {
                     Ok(())
                 }
             }
+            config::MessageFilterRule::Substring { substrings } => {
+                let skeleton = crate::confusable::skeletonize(text);
+
+                if let Some(captures) = substrings.captures(&skeleton) {
+                    Err(format!(
+                        "contains substring `{}`",
+                        captures.get(0).unwrap().as_str()
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
             config::MessageFilterRule::Regex { regexes } => {
                 let skeleton = crate::confusable::skeletonize(text);
 
@@ -164,7 +176,9 @@ impl config::MessageFilterRule {
                 let link_regex = LINK_REGEX.get().unwrap();
                 let mut link_domains = link_regex
                     .captures_iter(text)
-                    .map(|c| c.get(1).unwrap().as_str());
+                    .map(|c| c.get(1).unwrap().as_str())
+                    // Invites should be handled separately.
+                    .filter(|v| (*v) != "discord.gg");
                 filter_values(mode, "domain", &mut link_domains, domains)
             }
             config::MessageFilterRule::EmojiName { names } => {

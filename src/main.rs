@@ -1,10 +1,11 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use filter::SpamHistory;
-use influxdb::InfluxDbWriteable;
+use influxdb::{InfluxDbWriteable, WriteQuery};
 use reqwest::header::HeaderValue;
 use tokio::sync::RwLock;
 
@@ -49,6 +50,8 @@ struct State {
     spam_history: Arc<RwLock<SpamHistory>>,
     cmd_state: Arc<RwLock<Option<command::CommandState>>>,
     influx_client: Arc<Option<influxdb::Client>>,
+    influx_report_count: Arc<AtomicUsize>,
+    armed: Arc<AtomicBool>,
 }
 
 #[derive(Debug, InfluxDbWriteable)]
@@ -69,7 +72,7 @@ fn init_tracing() {
         .with_thread_names(true)
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("chrysanthemum=trace".parse().unwrap())
+                .add_directive("chrysanthemum=debug".parse().unwrap())
             )
         .init();
 }
@@ -82,6 +85,19 @@ fn init_tracing() {
         .with_thread_names(true)
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
+}
+
+async fn send_influx_point(state: &State, point: &WriteQuery) -> Result<()> {
+    if let Some(influx_client) = state.influx_client.as_ref() {
+        if let Some(influx_cfg) = state.cfg.influx.as_ref() {
+            let count = state.influx_report_count.fetch_add(1, Ordering::Relaxed);
+            if count % influx_cfg.report_every_n == 0 {
+                influx_client.query(point).await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -155,12 +171,14 @@ async fn main() -> Result<()> {
     }
 
     let state = State {
+        armed: Arc::new(AtomicBool::new(cfg.armed_by_default)),
         http,
         spam_history,
         cfg,
         stats,
         cmd_state: Arc::new(RwLock::new(None)),
         influx_client: Arc::new(influx_client),
+        influx_report_count: Arc::new(AtomicUsize::new(0)),
     };
 
     tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
@@ -206,15 +224,9 @@ async fn handle_event_wrapper(event: Event, state: State) {
         development,
     };
 
-    if let Some(influx_client) = state.influx_client.as_ref() {
-        tracing::trace!("Sending Influx report {:?}", report);
-
-        let result = influx_client.query(report.into_query("event_report")).await;
-        if let Err(err) = result {
-            tracing::error!("Error sending report to InfluxDB: {:?}", err);
-        } else {
-            tracing::trace!("Influx report sent successfully! Result: {:?}", result);
-        }
+    let result = send_influx_point(&state, &report.into_query("event_report")).await;
+    if let Err(err) = result {
+        tracing::error!("Unable to send Influx report: {:?}", err);
     }
 }
 
@@ -235,7 +247,7 @@ async fn handle_event(event: &Event, state: State) {
                     }
     
                     if let Some(message_filters) = &guild_config.messages {
-                        let (mut filter_result, mut actions) = (None, None);
+                        let (mut filter_result, mut actions, mut filter_name) = (None, None, None);
     
                         for filter in message_filters {
                             let scoping = filter
@@ -257,6 +269,7 @@ async fn handle_event(event: &Event, state: State) {
                             if test_result.is_err() {
                                 filter_result = Some(test_result);
                                 actions = filter.actions.as_ref();
+                                filter_name = Some(filter.name.as_str());
                                 break;
                             }
                         }
@@ -275,6 +288,7 @@ async fn handle_event(event: &Event, state: State) {
                                     .await,
                                 );
                                 actions = spam_config.actions.as_ref();
+                                filter_name = Some("Spam")
                             }
                         }
     
@@ -295,7 +309,12 @@ async fn handle_event(event: &Event, state: State) {
                                                 %message.author.id,
                                                 %reason,
                                                 "Deleting message");
-    
+                                            
+                                            if !state.armed.load(Ordering::Relaxed) {
+                                                tracing::debug!(%message.id, %message.channel_id, %message.author.id, %reason, "Aborting: Chrysanthemum has not been armed.");
+                                                continue;
+                                            }
+
                                             let result = state.http.delete_message(message.channel_id, message.id).exec().await;
     
                                             if let Err(err) = result {
@@ -309,7 +328,7 @@ async fn handle_event(event: &Event, state: State) {
     
                                             deleted = true;
                                         },
-                                        MessageFilterAction::SendMessage { channel_id, .. } => {
+                                        MessageFilterAction::SendLog { channel_id } => {
                                             tracing::debug!(
                                                 %message.id,
                                                 %message.channel_id,
@@ -317,13 +336,21 @@ async fn handle_event(event: &Event, state: State) {
                                                 %channel_id,
                                                 "Sending message filtration log message"
                                             );
+
+                                            let description = if message.content.len() > 0 {
+                                                format!("```{}```", message.content)
+                                            } else {
+                                                "<no content>".to_string()
+                                            };
     
                                             let result = state.http.create_message(*channel_id).embeds(&[
                                                 EmbedBuilder::new()
                                                     .title("Message filtered")
-                                                    .field(EmbedFieldBuilder::new("Author", format!("<@{}>", message.author.id.to_string())))
-                                                    .field(EmbedFieldBuilder::new("Reason", reason.clone()))
-                                                    .field(EmbedFieldBuilder::new("Text", format!("```{}```", message.content)))
+                                                    .field(EmbedFieldBuilder::new("Filter", filter_name.unwrap()))
+                                                    .field(EmbedFieldBuilder::new("Author", format!("<@{}>", message.author.id.to_string())).build())
+                                                    .field(EmbedFieldBuilder::new("Channel", message.channel_id.mention().to_string()).build())
+                                                    .field(EmbedFieldBuilder::new("Reason", reason.clone()).build())
+                                                    .description(description)
                                                     .build().unwrap()
                                             ]).unwrap().exec().await;
     
@@ -333,6 +360,27 @@ async fn handle_event(event: &Event, state: State) {
                                                     %message.channel_id,
                                                     %message.author.id,
                                                     %channel_id,
+                                                    ?err,
+                                                    "Error sending log message"
+                                                );
+                                            }
+                                        },
+                                        MessageFilterAction::SendMessage { channel_id, content, requires_armed } => {
+                                            if *requires_armed && !state.armed.load(Ordering::Relaxed) {
+                                                continue;
+                                            }
+
+                                            let formatted_content = content.replace("$USER_ID", &message.author.id.to_string());
+                                            let formatted_content = formatted_content.replace("$FILTER_REASON", &reason);
+
+                                            let result = state.http.create_message(*channel_id).content(&formatted_content).unwrap().exec().await;
+                                            if let Err(err) = result {
+                                                tracing::error!(
+                                                    %message.id,
+                                                    %message.channel_id,
+                                                    %message.author.id,
+                                                    %channel_id,
+                                                    %formatted_content,
                                                     ?err,
                                                     "Error sending message"
                                                 );
@@ -412,7 +460,18 @@ async fn handle_event(event: &Event, state: State) {
                                                     reaction.emoji = ?rxn.emoji,
                                                     reaction.author = %member.user.id,
                                                     "Deleting reactions on message");
-    
+                                                
+                                                if !state.armed.load(Ordering::Relaxed) {
+                                                    tracing::debug!(
+                                                        reaction.channel = %rxn.channel_id,
+                                                        reaction.message = %rxn.message_id,
+                                                        reaction.emoji = ?rxn.emoji,
+                                                        reaction.author = %member.user.id,
+                                                        "Aborting: Chrysanthemum has not been armed.");
+
+                                                    continue;
+                                                }
+
                                                 let result = state.http.delete_all_reaction(rxn.channel_id, rxn.message_id, &request_emoji).exec().await;
                                                 if let Err(err) = result {
                                                     tracing::error!(
@@ -425,9 +484,8 @@ async fn handle_event(event: &Event, state: State) {
                                                     );
                                                 }
                                             }
-                                            MessageFilterAction::SendMessage {
+                                            MessageFilterAction::SendLog {
                                                 channel_id,
-                                                ..
                                             } => {
                                                 let rxn_string = match &rxn.emoji {
                                                     ReactionType::Custom { id, .. } => id.mention().to_string(),
@@ -445,7 +503,9 @@ async fn handle_event(event: &Event, state: State) {
                                                 let result = state.http.create_message(*channel_id).embeds(&[
                                                     EmbedBuilder::new()
                                                         .title("Reaction filtered")
+                                                        .field(EmbedFieldBuilder::new("Filter", &filter.name))
                                                         .field(EmbedFieldBuilder::new("Author", format!("<@{}>", member.user.id.to_string())))
+                                                        .field(EmbedFieldBuilder::new("Channel", rxn.channel_id.mention().to_string()))
                                                         .field(EmbedFieldBuilder::new("Reason", reason.clone()))
                                                         .field(EmbedFieldBuilder::new("Reaction", rxn_string))
                                                         .build().unwrap()
@@ -460,6 +520,28 @@ async fn handle_event(event: &Event, state: State) {
                                                         target_channel = %channel_id,
                                                         error = ?err,
                                                         "Error sending message to channel"
+                                                    );
+                                                }
+                                            },
+                                            MessageFilterAction::SendMessage { channel_id, content, requires_armed } => {
+                                                if *requires_armed && !state.armed.load(Ordering::Relaxed) {
+                                                    continue;
+                                                }
+
+                                                let formatted_content = content.replace("$USER_ID", &member.user.id.to_string());
+                                                let formatted_content = formatted_content.replace("$FILTER_REASON", &reason);
+
+                                                let result = state.http.create_message(*channel_id).content(&formatted_content).unwrap().exec().await;
+                                                if let Err(err) = result {
+                                                    tracing::error!(
+                                                        reaction.channel = %rxn.channel_id,
+                                                        reaction.message = %rxn.message_id,
+                                                        reaction.emoji = ?rxn.emoji,
+                                                        reaction.author = %member.user.id,
+                                                        %channel_id,
+                                                        %formatted_content,
+                                                        ?err,
+                                                        "Error sending message"
                                                     );
                                                 }
                                             }

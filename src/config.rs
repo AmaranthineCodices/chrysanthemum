@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use serde::Deserialize;
 
@@ -23,8 +23,8 @@ where
             V: serde::de::SeqAccess<'de>,
         {
             let mut words = Vec::new();
-            while let Some(word) = seq.next_element()? {
-                words.push(regex::escape(word));
+            while let Some(word) = seq.next_element::<Cow<'de, str>>()? {
+                words.push(regex::escape(&word));
             }
 
             let pattern = words.join("|");
@@ -93,18 +93,10 @@ pub enum MessageFilterAction {
     SendMessage {
         channel_id: ChannelId,
         content: String,
-        batch: Option<bool>,
+        requires_armed: bool,
     },
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(tag = "action", rename_all = "snake_case")]
-pub enum ReactionFilterAction {
-    Delete,
-    SendMessage {
+    SendLog {
         channel_id: ChannelId,
-        content: String,
-        batch: Option<bool>,
     },
 }
 
@@ -134,6 +126,10 @@ pub enum MessageFilterRule {
         // regex pattern.
         #[serde(deserialize_with = "deserialize_word_regex")]
         words: Regex,
+    },
+    Substring {
+        #[serde(deserialize_with = "deserialize_substring_regex")]
+        substrings: Regex,
     },
     Regex {
         #[serde(with = "serde_regex")]
@@ -198,6 +194,7 @@ pub struct SpamFilter {
 
 #[derive(Deserialize, Debug, Default)]
 pub struct MessageFilter {
+    pub name: String,
     /// Which rules to match messages against.
     pub rules: Vec<MessageFilterRule>,
     /// What scoping to use for this rule.
@@ -230,6 +227,7 @@ pub enum ReactionFilterRule {
 
 #[derive(Deserialize, Debug)]
 pub struct ReactionFilter {
+    pub name: String,
     pub rules: Vec<ReactionFilterRule>,
     pub scoping: Option<Scoping>,
     pub actions: Option<Vec<MessageFilterAction>>,
@@ -302,6 +300,7 @@ pub struct InfluxConfig {
     pub url: String,
     pub database: String,
     pub token: String,
+    pub report_every_n: usize,
 }
 
 #[derive(Deserialize, Debug)]
@@ -314,6 +313,7 @@ pub struct Config {
     pub guilds: HashMap<GuildId, GuildConfig>,
     pub influx: Option<InfluxConfig>,
     pub sentry: Option<SentryConfig>,
+    pub armed_by_default: bool,
 }
 
 fn validate_scoping(scoping: &Scoping, context: &str, errors: &mut Vec<String>) {

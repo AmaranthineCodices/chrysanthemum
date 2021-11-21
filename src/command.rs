@@ -52,6 +52,16 @@ pub(crate) async fn create_commands(state: crate::State) -> Result<CommandState>
                         description: "Displays stats for this guild.".to_owned(),
                         options: vec![],
                     }),
+                    CommandOption::SubCommand(OptionsCommandOptionData {
+                        name: "arm".to_owned(),
+                        description: "Enables Chrysanthemum globally.".to_owned(),
+                        options: vec![],
+                    }),
+                    CommandOption::SubCommand(OptionsCommandOptionData {
+                        name: "disarm".to_owned(),
+                        description: "Disables Chrysanthemum globally.".to_owned(),
+                        options: vec![],
+                    }),
                 ])?
                 .exec()
                 .await?;
@@ -217,6 +227,42 @@ pub(crate) async fn handle_command(
                     .unwrap();
             }
         }
+        "arm" => {
+            state.armed.store(true, std::sync::atomic::Ordering::Relaxed);
+            state
+                .http
+                .interaction_callback(
+                    cmd.id,
+                    &cmd.token,
+                    &InteractionResponse::ChannelMessageWithSource(
+                        CallbackDataBuilder::new()
+                            .flags(MessageFlags::EPHEMERAL)
+                            .content("Chrysanthemum **armed**.".to_owned())
+                            .build()
+                    ),
+                )
+                .exec()
+                .await
+                .unwrap();
+        },
+        "disarm" => {
+            state.armed.store(false, std::sync::atomic::Ordering::Relaxed);
+            state
+                .http
+                .interaction_callback(
+                    cmd.id,
+                    &cmd.token,
+                    &InteractionResponse::ChannelMessageWithSource(
+                        CallbackDataBuilder::new()
+                            .flags(MessageFlags::EPHEMERAL)
+                            .content("Chrysanthemum **disarmed**.".to_owned())
+                            .build()
+                    ),
+                )
+                .exec()
+                .await
+                .unwrap();
+        },
         _ => unreachable!(),
     }
 

@@ -22,7 +22,7 @@ sentry = "0.23.0"
 
 tracing-log = "0.1.2"
 tracing = "0.1.29"
-tracing-subscriber = { version = "0.3.1", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.1", features = ["env-filter", "json"] }
 eyre = "0.6.5"
 color-eyre = "0.5.11"
 thiserror = "1.0.30"
