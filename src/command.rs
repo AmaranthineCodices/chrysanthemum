@@ -245,7 +245,7 @@ pub(crate) async fn handle_command(
             let result = crate::reload_guild_configs(&state).await;
             let embed = match result {
                 Ok(()) => EmbedBuilder::new().title("Reload successful").color(0x32_a8_52).build().unwrap(),
-                Err(report) => {
+                Err((_, report)) => {
                     let report = report.to_string();
                     EmbedBuilder::new().title("Reload failure").field(EmbedFieldBuilder::new("Reason", format!("```{}```", report)).build()).build().unwrap()
                 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, Duration};
 
 use chrono::{DateTime, Utc};
 use filter::SpamHistory;
@@ -33,6 +33,8 @@ mod command;
 mod config;
 mod confusable;
 mod filter;
+
+const DEFAULT_RELOAD_INTERVAL: u64 = 5 * 60;
 
 #[derive(Clone, Debug)]
 struct State {
@@ -154,7 +156,7 @@ async fn main() -> Result<()> {
 
     let cfg = Arc::new(cfg);
     let spam_history = Arc::new(RwLock::new(filter::SpamHistory::new()));
-    let initial_guild_configs = config::load_guild_configs(&cfg.guild_config_dir, &cfg.active_guilds)?;
+    let initial_guild_configs = config::load_guild_configs(&cfg.guild_config_dir, &cfg.active_guilds).map_err(|(_, e)| e)?;
     let cmd_ids = HashMap::new();
 
     let state = State {
@@ -170,12 +172,27 @@ async fn main() -> Result<()> {
 
     tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
 
-    while let Some(event) = events.next().await {
-        cache.update(&event);
-        tokio::spawn(handle_event_wrapper(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
+    for (guild_id, _) in state.guild_cfgs.read().await.iter() {
+        send_notification_to_guild(&state, *guild_id, "Chrysanthemum online", "Chrysanthemum is now online.").await?;
     }
 
-    Ok(())
+    let mut interval = tokio::time::interval(Duration::from_secs(state.cfg.reload_interval.unwrap_or(DEFAULT_RELOAD_INTERVAL)));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            Some(event) = events.next() => {
+                cache.update(&event);
+                tokio::spawn(handle_event_wrapper(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
+            },
+            _ = interval.tick() => {
+                let result = reload_guild_configs(&state).await;
+                if let Err((guild_id, report)) = result {
+                    tracing::error!(?guild_id, ?report, "Error reloading guild configuration");
+                    send_notification_to_guild(&state, guild_id, "Configuration reload failed", &format!("Failure reason:\n```{:#?}```\nConfiguration changes have **not** been applied.", report)).await?;
+                }
+            }
+        }
+    }
 }
 
 async fn handle_event_wrapper(event: Event, state: State) {
@@ -257,17 +274,26 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
     Ok(())
 }
 
-async fn reload_guild_configs(state: &State) -> Result<()> {
+#[tracing::instrument("Reloading guild configurations")]
+async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Report)> {
+    tracing::debug!("Reloading guild configurations");
     let new_guild_configs = crate::config::load_guild_configs(&state.cfg.guild_config_dir, &state.cfg.active_guilds)?;
     let mut command_ids = state.cmd_ids.write().await;
     let mut guild_cfgs = state.guild_cfgs.write().await;
 
-    for (guild_id, new_guild_config) in &new_guild_configs {
-        let old_guild_config = guild_cfgs.get(guild_id).expect("No old guild config?");
-        let command_id = command_ids.get(guild_id).map(|v| *v).unwrap_or(None);
-
-        let new_command_id = command::update_guild_commands(&state.http, *guild_id, old_guild_config.slash_commands.as_ref(), new_guild_config.slash_commands.as_ref(), command_id).await?;
-        command_ids.insert(*guild_id, new_command_id);
+    // We can't interact with commands until we have an application ID from the
+    // gateway. Don't try if we don't have one yet.
+    if state.http.application_id().is_none() {
+        for (guild_id, new_guild_config) in &new_guild_configs {
+            tracing::trace!(%guild_id, "Updating guild commands");
+            // We should always have an old guild config when this method is invoked,
+            // because we load configs initially before entering the event loop.
+            let old_guild_config = guild_cfgs.get(guild_id).expect("No old guild config?");
+            let command_id = command_ids.get(guild_id).map(|v| *v).unwrap_or(None);
+    
+            let new_command_id = command::update_guild_commands(&state.http, *guild_id, old_guild_config.slash_commands.as_ref(), new_guild_config.slash_commands.as_ref(), command_id).await.map_err(|e| (*guild_id, e))?;
+            command_ids.insert(*guild_id, new_command_id);
+        }
     }
 
     *guild_cfgs = new_guild_configs;
@@ -603,6 +629,31 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
                     }
                 }
             }
+        }
+    }
+
+    Ok(())
+}
+
+async fn send_notification_to_guild(state: &State, guild_id: GuildId, title: &str, body: &str) -> Result<()> {
+    let guild_configs = state.guild_cfgs.read().await;
+    if let Some(guild_config) = guild_configs.get(&guild_id) {
+        if let Some(notification_config) = &guild_config.notifications {
+            let mut builder = EmbedBuilder::new().title(title).description(body);
+
+            if let Some(ping_roles) = &notification_config.ping_roles {
+                let mut cc_body = String::new();
+                for role in ping_roles {
+                    cc_body += &role.mention().to_string();
+                    cc_body += " ";
+                }
+
+                builder = builder.field(EmbedFieldBuilder::new("CC", cc_body).build());
+            }
+            
+            state.http.create_message(notification_config.channel).embeds(&[
+                builder.build()?
+            ])?.exec().await?;
         }
     }
 

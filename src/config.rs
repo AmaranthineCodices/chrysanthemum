@@ -318,6 +318,7 @@ pub struct Config {
     pub active_guilds: Vec<GuildId>,
     pub influx: Option<InfluxConfig>,
     pub sentry: Option<SentryConfig>,
+    pub reload_interval: Option<u64>,
     pub armed_by_default: bool,
 }
 
@@ -529,13 +530,13 @@ pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig>
     }
 }
 
-pub fn load_guild_configs(config_root: &Path, guild_ids: &[GuildId]) -> Result<HashMap<GuildId, GuildConfig>> {
+pub fn load_guild_configs(config_root: &Path, guild_ids: &[GuildId]) -> Result<HashMap<GuildId, GuildConfig>, (GuildId, eyre::Report)> {
     let mut configs = HashMap::new();
 
     for guild_id in guild_ids {
         let guild_id = *guild_id;
 
-        let guild_config = load_config(config_root, guild_id).wrap_err(format!("Unable to load configuration for guild {}", guild_id))?;
+        let guild_config = load_config(config_root, guild_id).wrap_err(format!("Unable to load configuration for guild {}", guild_id)).map_err(|e| (guild_id, e))?;
         configs.insert(guild_id, guild_config);
     }
 
