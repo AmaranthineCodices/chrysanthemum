@@ -37,6 +37,7 @@ pub(crate) async fn create_commands_for_guild(http: &Client, guild_id: GuildId, 
                 name: "test".to_owned(),
                 description: "Tests a message against Chrysanthemum's filter.".to_owned(),
                 options: vec![CommandOption::String(ChoiceCommandOptionData {
+                    autocomplete: false,
                     name: "message".to_owned(),
                     description: "The message to test.".to_owned(),
                     required: true,
