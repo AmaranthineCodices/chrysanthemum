@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use color_eyre::eyre::Result;
 use twilight_embed_builder::{EmbedBuilder, EmbedFieldBuilder};
+use twilight_http::Client;
 use twilight_model::{
     application::{
         callback::InteractionResponse,
@@ -16,77 +17,102 @@ use twilight_model::{
 };
 use twilight_util::builder::CallbackDataBuilder;
 
+use crate::config::SlashCommands;
+
 #[derive(Debug)]
 pub(crate) struct CommandState {
     guild_commands: HashMap<GuildId, CommandId>,
 }
 
 #[tracing::instrument("Creating slash commands")]
-pub(crate) async fn create_commands(state: crate::State) -> Result<CommandState> {
-    let mut cmd_state = CommandState {
-        guild_commands: HashMap::new(),
-    };
+pub(crate) async fn create_commands_for_guild(http: &Client, guild_id: GuildId, command_config: &SlashCommands) -> Result<CommandId> {
+    let cmd = http
+        .create_guild_command(guild_id, "chrysanthemum")
+        .unwrap()
+        .chat_input("Interact with the Chrysanthemum bot")
+        .unwrap()
+        .default_permission(false)
+        .command_options(&[
+            CommandOption::SubCommand(OptionsCommandOptionData {
+                name: "test".to_owned(),
+                description: "Tests a message against Chrysanthemum's filter.".to_owned(),
+                options: vec![CommandOption::String(ChoiceCommandOptionData {
+                    name: "message".to_owned(),
+                    description: "The message to test.".to_owned(),
+                    required: true,
+                    choices: vec![],
+                })],
+            }),
+            CommandOption::SubCommand(OptionsCommandOptionData {
+                name: "arm".to_owned(),
+                description: "Enables Chrysanthemum globally.".to_owned(),
+                options: vec![],
+            }),
+            CommandOption::SubCommand(OptionsCommandOptionData {
+                name: "disarm".to_owned(),
+                description: "Disables Chrysanthemum globally.".to_owned(),
+                options: vec![],
+            }),
+            CommandOption::SubCommand(OptionsCommandOptionData {
+                name: "reload".to_owned(),
+                description: "Reloads Chrysanthemum's guild configurations.".to_owned(),
+                options: vec![],
+            }),
+        ])?
+        .exec()
+        .await?;
 
-    for (guild, cfg) in &state.cfg.guilds {
-        if let Some(slash_cmds) = &cfg.slash_commands {
-            let cmd = state
-                .http
-                .create_guild_command(*guild, "chrysanthemum")
-                .unwrap()
-                .chat_input("Interact with the Chrysanthemum bot")
-                .unwrap()
-                .default_permission(false)
-                .command_options(&[
-                    CommandOption::SubCommand(OptionsCommandOptionData {
-                        name: "test".to_owned(),
-                        description: "Tests a message against Chrysanthemum's filter.".to_owned(),
-                        options: vec![CommandOption::String(ChoiceCommandOptionData {
-                            name: "message".to_owned(),
-                            description: "The message to test.".to_owned(),
-                            required: true,
-                            choices: vec![],
-                        })],
-                    }),
-                    CommandOption::SubCommand(OptionsCommandOptionData {
-                        name: "stats".to_owned(),
-                        description: "Displays stats for this guild.".to_owned(),
-                        options: vec![],
-                    }),
-                    CommandOption::SubCommand(OptionsCommandOptionData {
-                        name: "arm".to_owned(),
-                        description: "Enables Chrysanthemum globally.".to_owned(),
-                        options: vec![],
-                    }),
-                    CommandOption::SubCommand(OptionsCommandOptionData {
-                        name: "disarm".to_owned(),
-                        description: "Disables Chrysanthemum globally.".to_owned(),
-                        options: vec![],
-                    }),
-                ])?
-                .exec()
-                .await?;
+    let cmd = cmd.model().await?;
+    Ok(cmd.id.unwrap())
+}
 
-            let cmd = cmd.model().await?;
+#[tracing::instrument("Updating command permissions")]
+pub async fn update_guild_command_permissions(http: &Client, guild_id: GuildId, command_config: &SlashCommands, command_id: CommandId) -> Result<()> {
+    let permissions: Vec<_> = command_config
+        .roles
+        .iter()
+        .map(|r| CommandPermissions {
+            id: CommandPermissionsType::Role(*r),
+            permission: true,
+        })
+        .collect();
 
-            let permissions: Vec<_> = slash_cmds
-                .roles
-                .iter()
-                .map(|r| CommandPermissions {
-                    id: CommandPermissionsType::Role(*r),
-                    permission: true,
-                })
-                .collect();
+    http
+        .update_command_permissions(guild_id, command_id, &permissions)?
+        .exec()
+        .await?;
 
-            state
-                .http
-                .update_command_permissions(*guild, cmd.id.unwrap(), &permissions)?
-                .exec()
-                .await?;
-            cmd_state.guild_commands.insert(*guild, cmd.id.unwrap());
-        }
+    Ok(())
+}
+
+#[tracing::instrument("Updating commands to match new configuration")]
+pub async fn update_guild_commands(http: &Client, guild_id: GuildId, old_config: Option<&SlashCommands>, new_config: Option<&SlashCommands>, command_id: Option<CommandId>) -> Result<Option<CommandId>> {
+    match (old_config, new_config) {
+        // Permissions have potentially changed.
+        (Some(old_config), Some(new_config)) => {
+            // We don't want to change permissions redundantly or we'll run into
+            // Discord quotas on this endpoint fairly quickly.
+            if old_config.roles == new_config.roles {
+                return Ok(command_id);
+            }
+
+            let command_id = command_id.expect("Command ID was None when old configuration was Some");
+            update_guild_command_permissions(http, guild_id, new_config, command_id).await?;
+            Ok(Some(command_id))
+        },
+        // Need to create the commands.
+        (None, Some(new_config)) => {
+            Ok(Some(create_commands_for_guild(http, guild_id, new_config).await?))
+        },
+        // Need to delete the commands.
+        (Some(_), None) => {
+            let command_id = command_id.expect("Command ID was None when old configuration was Some");
+            http.delete_guild_command(guild_id, command_id)?.exec().await?;
+            Ok(None)
+        },
+        // Do nothing in this case.
+        (None, None) => Ok(None),
     }
-
-    Ok(cmd_state)
 }
 
 pub(crate) async fn handle_command(
@@ -99,19 +125,14 @@ pub(crate) async fn handle_command(
 
     let guild_id = cmd.guild_id.unwrap();
 
-    let cmd_state = state.cmd_state.read().await;
-    if cmd_state.is_none() {
-        return Ok(());
-    }
-
-    let cmd_state = cmd_state.as_ref().unwrap();
-    let expected_cmd_id = cmd_state.guild_commands.get(&cmd.guild_id.unwrap());
+    let cmd_ids = state.cmd_ids.read().await;
+    let expected_cmd_id = *cmd_ids.get(&cmd.guild_id.unwrap()).unwrap_or(&None);
 
     if expected_cmd_id.is_none() {
         return Ok(());
     }
 
-    if expected_cmd_id.map(|v| *v).unwrap() != cmd.data.id {
+    if expected_cmd_id.unwrap() != cmd.data.id {
         return Ok(());
     }
 
@@ -129,7 +150,9 @@ pub(crate) async fn handle_command(
                     _ => return Ok(()),
                 };
 
-                if let Some(guild_config) = state.cfg.guilds.get(&guild_id) {
+                let guild_cfgs = state.guild_cfgs.read().await;
+
+                if let Some(guild_config) = guild_cfgs.get(&guild_id) {
                     if let Some(message_filters) = &guild_config.messages {
                         for filter in message_filters {
                             let result = filter.filter_text(&message[..]);
@@ -173,60 +196,6 @@ pub(crate) async fn handle_command(
                 }
             }
         }
-        "stats" => {
-            let stats = state.stats.read().await;
-            let stats = stats.get(&guild_id);
-
-            if let Some(stats) = stats {
-                let (filtered_messages, filtered_reactions, filtered_usernames) = {
-                    let stats = stats.lock().unwrap();
-                    let filtered_messages = stats.filtered_messages.to_string();
-                    let filtered_reactions = stats.filtered_reactions.to_string();
-                    let filtered_usernames = stats.filtered_usernames.to_string();
-                    (filtered_messages, filtered_reactions, filtered_usernames)
-                };
-
-                state
-                    .http
-                    .interaction_callback(
-                        cmd.id,
-                        &cmd.token,
-                        &InteractionResponse::ChannelMessageWithSource(
-                            CallbackDataBuilder::new()
-                                .flags(MessageFlags::EPHEMERAL)
-                                .embeds(vec![EmbedBuilder::new()
-                                    .title("Chrysanthemum Statistics")
-                                    .field(
-                                        EmbedFieldBuilder::new(
-                                            "Filtered Messages",
-                                            filtered_messages,
-                                        )
-                                        .build(),
-                                    )
-                                    .field(
-                                        EmbedFieldBuilder::new(
-                                            "Filtered Reactions",
-                                            filtered_reactions,
-                                        )
-                                        .build(),
-                                    )
-                                    .field(
-                                        EmbedFieldBuilder::new(
-                                            "Filtered Usernames",
-                                            filtered_usernames,
-                                        )
-                                        .build(),
-                                    )
-                                    .build()
-                                    .unwrap()])
-                                .build(),
-                        ),
-                    )
-                    .exec()
-                    .await
-                    .unwrap();
-            }
-        }
         "arm" => {
             state.armed.store(true, std::sync::atomic::Ordering::Relaxed);
             state
@@ -263,6 +232,20 @@ pub(crate) async fn handle_command(
                 .await
                 .unwrap();
         },
+        "reload" => {
+            let result = crate::reload_guild_configs(&state).await;
+            let embed = match result {
+                Ok(()) => EmbedBuilder::new().title("Reload successful").color(0x32_a8_52).build().unwrap(),
+                Err(report) => {
+                    let report = report.to_string();
+                    EmbedBuilder::new().title("Reload failure").field(EmbedFieldBuilder::new("Reason", format!("```{}```", report)).build()).build().unwrap()
+                }
+            };
+
+            state.http.interaction_callback(cmd.id, &cmd.token, &InteractionResponse::ChannelMessageWithSource(
+                CallbackDataBuilder::new().flags(MessageFlags::EPHEMERAL).embeds(vec![embed]).build()
+            )).exec().await.unwrap();
+        }
         _ => unreachable!(),
     }
 

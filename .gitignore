@@ -1,3 +1,4 @@
 /target
 chrysanthemum*.cfg.json
 .env
+/configs

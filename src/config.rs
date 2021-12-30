@@ -1,8 +1,12 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, path::{PathBuf, Path}, collections::HashMap};
 
-use serde::Deserialize;
+use eyre::{Result, Context};
+use serde::{Deserialize, Serialize};
 
-use twilight_model::{channel::message::sticker::StickerId, id::{GuildId, RoleId, ChannelId, EmojiId}};
+use twilight_model::{
+    channel::message::sticker::StickerId,
+    id::{ChannelId, EmojiId, GuildId, RoleId},
+};
 
 use regex::Regex;
 
@@ -43,7 +47,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let pattern = deserialize_regex_pattern(de);
-    
+
     match pattern {
         Ok(mut pattern) => {
             pattern.insert_str(0, "\\b(");
@@ -57,8 +61,8 @@ where
                     err
                 ))),
             }
-        },
-        Err(e) => Err(e)
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -67,7 +71,7 @@ where
     D: serde::Deserializer<'de>,
 {
     let pattern = deserialize_regex_pattern(de);
-    
+
     match pattern {
         Ok(pattern) => {
             let regex = Regex::new(&pattern);
@@ -79,12 +83,12 @@ where
                     err
                 ))),
             }
-        },
-        Err(e) => Err(e)
+        }
+        Err(e) => Err(e),
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum MessageFilterAction {
     /// Delete the offending piece of content.
@@ -100,7 +104,7 @@ pub enum MessageFilterAction {
     },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum FilterMode {
     #[serde(rename = "allow")]
     AllowList,
@@ -108,7 +112,7 @@ pub enum FilterMode {
     DenyList,
 }
 
-#[derive(Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Scoping {
     /// Which channels to exclude.
     pub exclude_channels: Option<Vec<ChannelId>>,
@@ -209,7 +213,7 @@ pub enum ReactionFilterRule {
     /// Filter default emoji.
     Default {
         mode: FilterMode,
-        emoji: Vec<String>
+        emoji: Vec<String>,
     },
     /// Filter custom emoji by ID.
     CustomId {
@@ -222,7 +226,7 @@ pub enum ReactionFilterRule {
         // regex pattern.
         #[serde(deserialize_with = "deserialize_substring_regex")]
         names: Regex,
-    }
+    },
 }
 
 #[derive(Deserialize, Debug)]
@@ -233,7 +237,7 @@ pub struct ReactionFilter {
     pub actions: Option<Vec<MessageFilterAction>>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct SlashCommands {
     /// Which roles are allowed to use slash commands.
     pub roles: Vec<RoleId>,
@@ -259,10 +263,10 @@ pub enum UsernameFilterRule {
     Regex {
         #[serde(with = "serde_regex")]
         regexes: Vec<Regex>,
-    }
+    },
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum UsernameFilterAction {
     SendMessage {
         channel_id: ChannelId,
@@ -310,7 +314,8 @@ pub struct SentryConfig {
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    pub guilds: HashMap<GuildId, GuildConfig>,
+    pub guild_config_dir: PathBuf,
+    pub active_guilds: Vec<GuildId>,
     pub influx: Option<InfluxConfig>,
     pub sentry: Option<SentryConfig>,
     pub armed_by_default: bool,
@@ -322,132 +327,174 @@ fn validate_scoping(scoping: &Scoping, context: &str, errors: &mut Vec<String>) 
     }
 
     if scoping.exclude_channels.is_some() && scoping.exclude_channels.as_ref().unwrap().len() == 0 {
-        errors.push(format!("in {}, scoping rule specifies an empty exclude_channels; omit the key instead.", context));
+        errors.push(format!(
+            "in {}, scoping rule specifies an empty exclude_channels; omit the key instead.",
+            context
+        ));
     }
 
     if scoping.include_channels.is_some() && scoping.include_channels.as_ref().unwrap().len() == 0 {
-        errors.push(format!("in {}, scoping rule specifies an empty include_channels; omit the key instead.", context));
+        errors.push(format!(
+            "in {}, scoping rule specifies an empty include_channels; omit the key instead.",
+            context
+        ));
     }
 
     if scoping.exclude_roles.is_some() && scoping.exclude_roles.as_ref().unwrap().len() == 0 {
-        errors.push(format!("in {}, scoping rule specifies an empty exclude_roles; omit the key instead.", context));
+        errors.push(format!(
+            "in {}, scoping rule specifies an empty exclude_roles; omit the key instead.",
+            context
+        ));
     }
 }
 
-pub fn validate_config(config: &Config) -> Result<(), Vec<String>> {
+pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
 
-    for (guild_id, guild) in &config.guilds {
-        if let Some(slash_commands) = &guild.slash_commands {
-            if slash_commands.roles.len() == 0 {
-                errors.push(format!("in guild {}, slash_commands.roles is empty - no roles will be able to use slash commands.", guild_id));
+    if let Some(slash_commands) = &guild.slash_commands {
+        if slash_commands.roles.len() == 0 {
+            errors.push(format!("slash_commands.roles is empty - no roles will be able to use slash commands."));
+        }
+    }
+
+    if let Some(scoping) = &guild.default_scoping {
+        validate_scoping(
+            scoping,
+            &format!("default scoping"),
+            &mut errors,
+        );
+    }
+
+    let mut has_default_actions = false;
+    if let Some(actions) = &guild.default_actions {
+        if actions.len() == 0 {
+            errors.push(format!(
+                "default_actions is specified but is empty."
+            ));
+        } else {
+            has_default_actions = true;
+        }
+    }
+
+    if let Some(notifications) = &guild.notifications {
+        if let Some(roles) = &notifications.ping_roles {
+            if roles.len() == 0 {
+                errors.push(format!("notification settings, ping_roles is specified but is empty; omit the key."));
             }
         }
+    }
 
-        if let Some(scoping) = &guild.default_scoping {
-            validate_scoping(scoping, &format!("guild {} default scoping", guild_id), &mut errors);
+    if let Some(spam) = &guild.spam {
+        if let Some(scoping) = spam.scoping.as_ref() {
+            validate_scoping(
+                scoping,
+                &format!("spam scoping"),
+                &mut errors,
+            );
         }
 
-        let mut has_default_actions = false;
-        if let Some(actions) = &guild.default_actions {
+        if let Some(actions) = &spam.actions {
             if actions.len() == 0 {
-                errors.push(format!("in guild {}, default_actions is specified but is empty.", guild_id));
-            } else {
-                has_default_actions = true;
+                errors.push(format!(
+                    "in spam config, actions is specified but is empty.",
+                ));
             }
+        } else if !has_default_actions {
+            errors.push(format!("in spam config, no actions are specified and there are no default actions for this guild."));
         }
 
-        if let Some(notifications) = &guild.notifications {
-            if let Some(roles) = &notifications.ping_roles {
-                if roles.len() == 0 {
-                    errors.push(format!("in guild {} notification settings, ping_roles is specified but is empty; omit the key.", guild_id));
-                }
-            }
+        if spam.emoji.is_none()
+            && spam.attachments.is_none()
+            && spam.duplicates.is_none()
+            && spam.links.is_none()
+            && spam.spoilers.is_none()
+        {
+            errors.push(format!("in spam config, no spam thresholds are specified. Spam filtering will have no effects."));
+        }
+    }
+
+    if let Some(usernames) = &guild.usernames {
+        if usernames.actions.len() == 0 {
+            errors.push("in username config, actions is empty.".to_owned());
         }
 
-        if let Some(spam) = &guild.spam {
-            if let Some(scoping) = spam.scoping.as_ref() {
-                validate_scoping(scoping, &format!("guild {} spam scoping", guild_id), &mut errors);
-            }
-            
-            if let Some(actions) = &spam.actions {
-                if actions.len() == 0 {
-                    errors.push(format!("in guild {} spam config, actions is specified but is empty.", guild_id));
-                }
-            } else if !has_default_actions {
-                errors.push(format!("in guild {} spam config, no actions are specified and there are no default actions for this guild.", guild_id));
-            }
+        if usernames.rules.len() == 0 {
+            errors.push(format!(
+                "in username config, rules is empty.",
+            ));
+        }
+    }
 
-            if spam.emoji.is_none() && spam.attachments.is_none() && spam.duplicates.is_none() && spam.links.is_none() && spam.spoilers.is_none() {
-                errors.push(format!("in guild {} spam config, no spam thresholds are specified. Spam filtering will have no effects.", guild_id));
-            }
+    if let Some(messages) = &guild.messages {
+        if messages.len() == 0 {
+            errors.push(format!(
+                "messages is empty; omit the key.",
+            ));
         }
 
-        if let Some(usernames) = &guild.usernames {
-            if usernames.actions.len() == 0 {
-                errors.push(format!("in guild {} username config, actions is empty.", guild_id));
-            }
-
-            if usernames.rules.len() == 0 {
-                errors.push(format!("in guild {} username config, rules is empty.", guild_id));
-            }
-        }
-
-        if let Some(messages) = &guild.messages {
-            if messages.len() == 0 {
-                errors.push(format!("in guild {}, messages is empty; omit the key.", guild_id));
-            }
-
-            for (i, filter) in messages.iter().enumerate() {
-                match &filter.actions {
-                    Some(actions) => {
-                        if actions.len() == 0 {
-                            errors.push(format!("in guild {}, message filter {} has an empty actions array; omit the key to use default actions", guild_id, i));
-                        }
-                    },
-                    None => {
-                        if !has_default_actions {
-                            errors.push(format!("in guild {}, message filter {} does not specify actions, but this guild has no default actions.", guild_id, i));
-                        }
+        for (i, filter) in messages.iter().enumerate() {
+            match &filter.actions {
+                Some(actions) => {
+                    if actions.len() == 0 {
+                        errors.push(format!("message filter {} has an empty actions array; omit the key to use default actions", i));
                     }
                 }
-
-                if let Some(scoping) = &filter.scoping {
-                    validate_scoping(scoping, &format!("guild {}, message filter {}", guild_id, i), &mut errors);
-                }
-
-                if filter.rules.len() == 0 {
-                    errors.push(format!("in guild {}, message filter {} has no rules", guild_id, i));
-                }
-            }
-        }
-
-        if let Some(reactions) = &guild.reactions {
-            if reactions.len() == 0 {
-                errors.push(format!("in guild {}, reactions is specified but is empty; omit the key to disable reaction filtering", guild_id));
-            }
-
-            for (i, filter) in reactions.iter().enumerate() {
-                match &filter.actions {
-                    Some(actions) => {
-                        if actions.len() == 0 {
-                            errors.push(format!("in guild {}, reaction filter {} has an empty actions array; omit the key to use default actions", guild_id, i));
-                        }
-                    },
-                    None => {
-                        if !has_default_actions {
-                            errors.push(format!("in guild {}, reaction filter {} does not specify actions, but this guild has no default actions.", guild_id, i));
-                        }
+                None => {
+                    if !has_default_actions {
+                        errors.push(format!("message filter {} does not specify actions, but this guild has no default actions.", i));
                     }
                 }
+            }
 
-                if let Some(scoping) = &filter.scoping {
-                    validate_scoping(scoping, &format!("guild {}, reaction filter {}", guild_id, i), &mut errors);
-                }
+            if let Some(scoping) = &filter.scoping {
+                validate_scoping(
+                    scoping,
+                    &format!("message filter {}", i),
+                    &mut errors,
+                );
+            }
 
-                if filter.rules.len() == 0 {
-                    errors.push(format!("in guild {}, reaction filter {} has no rules", guild_id, i));
+            if filter.rules.len() == 0 {
+                errors.push(format!(
+                    "message filter {} has no rules",
+                    i
+                ));
+            }
+        }
+    }
+
+    if let Some(reactions) = &guild.reactions {
+        if reactions.len() == 0 {
+            errors.push(format!("reactions is specified but is empty; omit the key to disable reaction filtering"));
+        }
+
+        for (i, filter) in reactions.iter().enumerate() {
+            match &filter.actions {
+                Some(actions) => {
+                    if actions.len() == 0 {
+                        errors.push(format!("reaction filter {} has an empty actions array; omit the key to use default actions", i));
+                    }
                 }
+                None => {
+                    if !has_default_actions {
+                        errors.push(format!("reaction filter {} does not specify actions, but this guild has no default actions.", i));
+                    }
+                }
+            }
+
+            if let Some(scoping) = &filter.scoping {
+                validate_scoping(
+                    scoping,
+                    &format!("reaction filter {}", i),
+                    &mut errors,
+                );
+            }
+
+            if filter.rules.len() == 0 {
+                errors.push(format!(
+                    "reaction filter {} has no rules",
+                    i
+                ));
             }
         }
     }
@@ -457,6 +504,42 @@ pub fn validate_config(config: &Config) -> Result<(), Vec<String>> {
     } else {
         Ok(())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadConfigError {
+    #[error("I/O error: {0:?}")]
+    IoError(#[from] std::io::Error),
+    #[error("Deserialization error: {0:?}")]
+    DeserializeError(#[from] serde_json::Error),
+    #[error("Configuration validation error: {0:?}")]
+    ValidateError(Vec<String>),
+}
+
+pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig> {
+    let mut config_path = config_root.join(guild_id.to_string());
+    config_path.set_extension("json");
+
+    let config_string = std::fs::read_to_string(&config_path).wrap_err(format!("Unable to read {:?}", config_path))?;
+    let config_json = serde_json::from_str(&config_string)?;
+
+    match validate_guild_config(&config_json) {
+        Ok(()) => Ok(config_json),
+        Err(errs) => Err(LoadConfigError::ValidateError(errs).into()),
+    }
+}
+
+pub fn load_guild_configs(config_root: &Path, guild_ids: &[GuildId]) -> Result<HashMap<GuildId, GuildConfig>> {
+    let mut configs = HashMap::new();
+
+    for guild_id in guild_ids {
+        let guild_id = *guild_id;
+
+        let guild_config = load_config(config_root, guild_id).wrap_err(format!("Unable to load configuration for guild {}", guild_id))?;
+        configs.insert(guild_id, guild_config);
+    }
+
+    Ok(configs)
 }
 
 #[cfg(test)]
