@@ -87,31 +87,36 @@ pub async fn update_guild_command_permissions(http: &Client, guild_id: GuildId, 
 
 #[tracing::instrument("Updating commands to match new configuration")]
 pub async fn update_guild_commands(http: &Client, guild_id: GuildId, old_config: Option<&SlashCommands>, new_config: Option<&SlashCommands>, command_id: Option<CommandId>) -> Result<Option<CommandId>> {
-    match (old_config, new_config) {
+    match (old_config, new_config, command_id) {
         // Permissions have potentially changed.
-        (Some(old_config), Some(new_config)) => {
+        (Some(old_config), Some(new_config), Some(command_id)) => {
             // We don't want to change permissions redundantly or we'll run into
             // Discord quotas on this endpoint fairly quickly.
             if old_config.roles == new_config.roles {
-                return Ok(command_id);
+                return Ok(Some(command_id));
             }
 
-            let command_id = command_id.expect("Command ID was None when old configuration was Some");
             update_guild_command_permissions(http, guild_id, new_config, command_id).await?;
             Ok(Some(command_id))
         },
+        // Command isn't registered.
+        (Some(_), Some(new_config), None) => {
+            Ok(Some(create_commands_for_guild(http, guild_id, new_config).await?))
+        },
         // Need to create the commands.
-        (None, Some(new_config)) => {
+        (None, Some(new_config), _) => {
             Ok(Some(create_commands_for_guild(http, guild_id, new_config).await?))
         },
         // Need to delete the commands.
-        (Some(_), None) => {
-            let command_id = command_id.expect("Command ID was None when old configuration was Some");
+        (Some(_), None, Some(command_id)) => {
             http.delete_guild_command(guild_id, command_id)?.exec().await?;
             Ok(None)
         },
+        // We never registered commands for this guild, and the new config doesn't
+        // need them, so do nothing.
+        (Some(_), None, None) => Ok(None),
         // Do nothing in this case.
-        (None, None) => Ok(None),
+        (None, None, _) => Ok(None),
     }
 }
 
@@ -125,14 +130,18 @@ pub(crate) async fn handle_command(
 
     let guild_id = cmd.guild_id.unwrap();
 
-    let cmd_ids = state.cmd_ids.read().await;
-    let expected_cmd_id = *cmd_ids.get(&cmd.guild_id.unwrap()).unwrap_or(&None);
+    let expected_cmd_id = {
+        let cmd_ids = state.cmd_ids.read().await;
+        *cmd_ids.get(&cmd.guild_id.unwrap()).unwrap_or(&None)
+    };
 
     if expected_cmd_id.is_none() {
+        tracing::trace!("Command ID doesn't exist");
         return Ok(());
     }
 
     if expected_cmd_id.unwrap() != cmd.data.id {
+        tracing::trace!("Unexpected command ID");
         return Ok(());
     }
 
