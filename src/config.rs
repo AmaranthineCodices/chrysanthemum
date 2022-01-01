@@ -1,7 +1,7 @@
 use std::{borrow::Cow, path::{PathBuf, Path}, collections::HashMap};
 
 use eyre::{Result, Context};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use twilight_model::{
     channel::message::sticker::StickerId,
@@ -88,7 +88,7 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum MessageFilterAction {
     /// Delete the offending piece of content.
@@ -104,7 +104,7 @@ pub enum MessageFilterAction {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub enum FilterMode {
     #[serde(rename = "allow")]
     AllowList,
@@ -112,7 +112,7 @@ pub enum FilterMode {
     DenyList,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Deserialize, Debug, Default)]
 pub struct Scoping {
     /// Which channels to exclude.
     pub exclude_channels: Option<Vec<ChannelId>>,
@@ -237,7 +237,7 @@ pub struct ReactionFilter {
     pub actions: Option<Vec<MessageFilterAction>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct SlashCommands {
     /// Which roles are allowed to use slash commands.
     pub roles: Vec<RoleId>,
@@ -266,7 +266,7 @@ pub enum UsernameFilterRule {
     },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub enum UsernameFilterAction {
     SendMessage {
         channel_id: ChannelId,
