@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use color_eyre::eyre::Result;
 use twilight_embed_builder::{EmbedBuilder, EmbedFieldBuilder};
 use twilight_http::Client;
@@ -18,11 +16,6 @@ use twilight_model::{
 use twilight_util::builder::CallbackDataBuilder;
 
 use crate::config::SlashCommands;
-
-#[derive(Debug)]
-pub(crate) struct CommandState {
-    guild_commands: HashMap<GuildId, CommandId>,
-}
 
 #[tracing::instrument("Creating slash commands")]
 pub(crate) async fn create_commands_for_guild(http: &Client, guild_id: GuildId, command_config: &SlashCommands) -> Result<CommandId> {
