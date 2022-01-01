@@ -512,20 +512,20 @@ pub enum LoadConfigError {
     #[error("I/O error: {0:?}")]
     IoError(#[from] std::io::Error),
     #[error("Deserialization error: {0:?}")]
-    DeserializeError(#[from] serde_json::Error),
+    DeserializeError(#[from] serde_yaml::Error),
     #[error("Configuration validation error: {0:?}")]
     ValidateError(Vec<String>),
 }
 
 pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig> {
     let mut config_path = config_root.join(guild_id.to_string());
-    config_path.set_extension("json");
+    config_path.set_extension("yml");
 
     let config_string = std::fs::read_to_string(&config_path).wrap_err(format!("Unable to read {:?}", config_path))?;
-    let config_json = serde_json::from_str(&config_string)?;
+    let config_yaml = serde_yaml::from_str(&config_string)?;
 
-    match validate_guild_config(&config_json) {
-        Ok(()) => Ok(config_json),
+    match validate_guild_config(&config_yaml) {
+        Ok(()) => Ok(config_yaml),
         Err(errs) => Err(LoadConfigError::ValidateError(errs).into()),
     }
 }
@@ -557,7 +557,7 @@ mod test {
         "#;
 
         let rule: MessageFilterRule =
-            serde_json::from_str(&json).expect("couldn't deserialize MessageFilterRule");
+            serde_yaml::from_str(&json).expect("couldn't deserialize MessageFilterRule");
 
         if let MessageFilterRule::Words { words } = rule {
             assert_eq!(words.to_string(), "\\b(a|b|a\\(b\\))\\b");

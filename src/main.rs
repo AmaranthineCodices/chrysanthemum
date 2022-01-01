@@ -121,10 +121,10 @@ async fn main() -> Result<()> {
 
     let config_path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "chrysanthemum.cfg.json".to_owned());
+        .unwrap_or_else(|| "chrysanthemum.cfg.yml".to_owned());
 
     let cfg_json = std::fs::read_to_string(&config_path).expect("couldn't read config file");
-    let cfg: Config = serde_json::from_str(&cfg_json).expect("Couldn't deserialize config");
+    let cfg: Config = serde_yaml::from_str(&cfg_json).expect("Couldn't deserialize config");
 
     let _sentry_guard = if let Some(sentry_config) = &cfg.sentry {
         Some(sentry::init((sentry_config.url.clone(), sentry::ClientOptions {
