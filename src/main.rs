@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, Duration};
@@ -108,6 +109,13 @@ async fn send_influx_point(state: &State, point: &WriteQuery) -> Result<()> {
     Ok(())
 }
 
+fn validate_configs() -> Result<()> {
+    let config_path = PathBuf::from(std::env::args().nth(2).expect("Second argument (config path) not passed"));
+    config::load_all_guild_configs(&config_path)?;
+    println!("All guild configs are valid");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
@@ -115,6 +123,13 @@ async fn main() -> Result<()> {
     dotenv::dotenv().ok();
 
     filter::init_globals();
+
+    let validate_config_mode = std::env::args().nth(1) == Some("validate-configs".to_owned());
+
+    if validate_config_mode {
+        validate_configs()?;
+        return Ok(())
+    }
 
     let discord_token =
         std::env::var("DISCORD_TOKEN")?;

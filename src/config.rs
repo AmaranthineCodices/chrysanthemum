@@ -543,6 +543,28 @@ pub fn load_guild_configs(config_root: &Path, guild_ids: &[GuildId]) -> Result<H
     Ok(configs)
 }
 
+pub fn load_all_guild_configs(config_root: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(config_root)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            let config_string = std::fs::read_to_string(&path).wrap_err(format!("Unable to read {:?}", path))?;
+            let config_yaml = serde_yaml::from_str(&config_string).wrap_err(format!("Unable to deserialize {:?}", path))?;
+            
+            match validate_guild_config(&config_yaml) {
+                Ok(()) => {},
+                Err(errs) => {
+                    let err = LoadConfigError::ValidateError(errs);
+                    let err: eyre::Report = err.into();
+                    return Err(err.wrap_err(format!("Unable to validate {:?}", path)));
+                },
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
