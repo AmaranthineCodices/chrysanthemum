@@ -157,44 +157,45 @@ pub(crate) async fn handle_command(
 
                 if let Some(guild_config) = guild_cfgs.get(&guild_id) {
                     if let Some(message_filters) = &guild_config.messages {
+                        let mut result = Ok(());
                         for filter in message_filters {
-                            let result = filter.filter_text(&message[..]);
-
-                            let result_string = match result {
-                                Ok(()) => "✅ Passed all filters".to_owned(),
-                                Err(reason) => format!("❎ Failed filter: {}", reason),
-                            };
-
-                            state
-                                .http
-                                .interaction_callback(
-                                    cmd.id,
-                                    &cmd.token,
-                                    &InteractionResponse::ChannelMessageWithSource(
-                                        CallbackDataBuilder::new()
-                                            .flags(MessageFlags::EPHEMERAL)
-                                            .embeds(vec![EmbedBuilder::new()
-                                                .title("Test filter")
-                                                .field(
-                                                    EmbedFieldBuilder::new(
-                                                        "Input",
-                                                        format!("```{}```", message),
-                                                    )
-                                                    .build(),
-                                                )
-                                                .field(
-                                                    EmbedFieldBuilder::new("Result", result_string)
-                                                        .build(),
-                                                )
-                                                .build()
-                                                .unwrap()])
-                                            .build(),
-                                    ),
-                                )
-                                .exec()
-                                .await
-                                .unwrap();
+                            result = result.and(filter.filter_text(&message[..]));
                         }
+
+                        let result_string = match result {
+                            Ok(()) => "✅ Passed all filters".to_owned(),
+                            Err(reason) => format!("❎ Failed filter: {}", reason),
+                        };
+
+                        state
+                            .http
+                            .interaction_callback(
+                                cmd.id,
+                                &cmd.token,
+                                &InteractionResponse::ChannelMessageWithSource(
+                                    CallbackDataBuilder::new()
+                                        .flags(MessageFlags::EPHEMERAL)
+                                        .embeds(vec![EmbedBuilder::new()
+                                            .title("Test filter")
+                                            .field(
+                                                EmbedFieldBuilder::new(
+                                                    "Input",
+                                                    format!("```{}```", message),
+                                                )
+                                                .build(),
+                                            )
+                                            .field(
+                                                EmbedFieldBuilder::new("Result", result_string)
+                                                    .build(),
+                                            )
+                                            .build()
+                                            .unwrap()])
+                                        .build(),
+                                ),
+                            )
+                            .exec()
+                            .await
+                            .unwrap();
                     }
                 }
             }
