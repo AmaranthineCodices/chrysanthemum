@@ -12,7 +12,7 @@ use twilight_model::{
     id::{ChannelId, EmojiId, GuildId, RoleId},
 };
 
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 
 fn deserialize_regex_pattern<'de, D>(de: D) -> Result<String, D::Error>
 where
@@ -56,7 +56,7 @@ where
         Ok(mut pattern) => {
             pattern.insert_str(0, "\\b(");
             pattern.push_str(")\\b");
-            let regex = Regex::new(&pattern);
+            let regex = RegexBuilder::new(&pattern).case_insensitive(true).build();
 
             match regex {
                 Ok(regex) => Ok(regex),
@@ -78,7 +78,7 @@ where
 
     match pattern {
         Ok(pattern) => {
-            let regex = Regex::new(&pattern);
+            let regex = RegexBuilder::new(&pattern).case_insensitive(true).build();
 
             match regex {
                 Ok(regex) => Ok(regex),
