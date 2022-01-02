@@ -188,7 +188,10 @@ async fn main() -> Result<()> {
     tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
 
     for (guild_id, _) in state.guild_cfgs.read().await.iter() {
-        send_notification_to_guild(&state, *guild_id, "Chrysanthemum online", "Chrysanthemum is now online.").await?;
+        let result = send_notification_to_guild(&state, *guild_id, "Chrysanthemum online", "Chrysanthemum is now online.").await;
+        if let Err(err) = result {
+            tracing::error!(?err, %guild_id, "Error sending up notification");
+        }
     }
 
     let mut interval = tokio::time::interval(Duration::from_secs(state.cfg.reload_interval.unwrap_or(DEFAULT_RELOAD_INTERVAL)));
