@@ -1,6 +1,10 @@
-use std::{borrow::Cow, path::{PathBuf, Path}, collections::HashMap};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
-use eyre::{Result, Context};
+use eyre::{Context, Result};
 use serde::Deserialize;
 
 use twilight_model::{
@@ -349,29 +353,61 @@ fn validate_scoping(scoping: &Scoping, context: &str, errors: &mut Vec<String>) 
     }
 }
 
+fn validate_message_rule(
+    message_rule: &MessageFilterRule,
+    context: &str,
+    errors: &mut Vec<String>,
+) {
+    match message_rule {
+        MessageFilterRule::Substring { substrings } => {
+            if substrings.is_match("") {
+                errors.push(format!(
+                    "in {}, substrings contains an empty string; this would match all messages",
+                    context
+                ));
+            }
+        }
+        MessageFilterRule::Words { words } => {
+            if words.is_match("") {
+                errors.push(format!(
+                    "in {}, words contains an empty string; this would match all messages",
+                    context
+                ));
+            }
+        }
+        MessageFilterRule::Regex { regexes } => {
+            for (index, regex) in regexes.iter().enumerate() {
+                if regex.is_match("") {
+                    errors.push(format!(
+                        "in {}, regex {} matches an empty string; this would match all messages",
+                        context, index
+                    ));
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
 
     if let Some(slash_commands) = &guild.slash_commands {
         if slash_commands.roles.len() == 0 {
-            errors.push(format!("slash_commands.roles is empty - no roles will be able to use slash commands."));
+            errors.push(format!(
+                "slash_commands.roles is empty - no roles will be able to use slash commands."
+            ));
         }
     }
 
     if let Some(scoping) = &guild.default_scoping {
-        validate_scoping(
-            scoping,
-            &format!("default scoping"),
-            &mut errors,
-        );
+        validate_scoping(scoping, &format!("default scoping"), &mut errors);
     }
 
     let mut has_default_actions = false;
     if let Some(actions) = &guild.default_actions {
         if actions.len() == 0 {
-            errors.push(format!(
-                "default_actions is specified but is empty."
-            ));
+            errors.push(format!("default_actions is specified but is empty."));
         } else {
             has_default_actions = true;
         }
@@ -380,18 +416,16 @@ pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
     if let Some(notifications) = &guild.notifications {
         if let Some(roles) = &notifications.ping_roles {
             if roles.len() == 0 {
-                errors.push(format!("notification settings, ping_roles is specified but is empty; omit the key."));
+                errors.push(format!(
+                    "notification settings, ping_roles is specified but is empty; omit the key."
+                ));
             }
         }
     }
 
     if let Some(spam) = &guild.spam {
         if let Some(scoping) = spam.scoping.as_ref() {
-            validate_scoping(
-                scoping,
-                &format!("spam scoping"),
-                &mut errors,
-            );
+            validate_scoping(scoping, &format!("spam scoping"), &mut errors);
         }
 
         if let Some(actions) = &spam.actions {
@@ -420,17 +454,13 @@ pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
         }
 
         if usernames.rules.len() == 0 {
-            errors.push(format!(
-                "in username config, rules is empty.",
-            ));
+            errors.push(format!("in username config, rules is empty.",));
         }
     }
 
     if let Some(messages) = &guild.messages {
         if messages.len() == 0 {
-            errors.push(format!(
-                "messages is empty; omit the key.",
-            ));
+            errors.push(format!("messages is empty; omit the key.",));
         }
 
         for (i, filter) in messages.iter().enumerate() {
@@ -448,25 +478,28 @@ pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
             }
 
             if let Some(scoping) = &filter.scoping {
-                validate_scoping(
-                    scoping,
-                    &format!("message filter {}", i),
-                    &mut errors,
-                );
+                validate_scoping(scoping, &format!("message filter {}", i), &mut errors);
             }
 
             if filter.rules.len() == 0 {
-                errors.push(format!(
-                    "message filter {} has no rules",
-                    i
-                ));
+                errors.push(format!("message filter {} has no rules", i));
+            } else {
+                for (index, rule) in filter.rules.iter().enumerate() {
+                    validate_message_rule(
+                        rule,
+                        &format!("message filter {}, rule {}", i, index),
+                        &mut errors,
+                    );
+                }
             }
         }
     }
 
     if let Some(reactions) = &guild.reactions {
         if reactions.len() == 0 {
-            errors.push(format!("reactions is specified but is empty; omit the key to disable reaction filtering"));
+            errors.push(format!(
+                "reactions is specified but is empty; omit the key to disable reaction filtering"
+            ));
         }
 
         for (i, filter) in reactions.iter().enumerate() {
@@ -484,18 +517,11 @@ pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
             }
 
             if let Some(scoping) = &filter.scoping {
-                validate_scoping(
-                    scoping,
-                    &format!("reaction filter {}", i),
-                    &mut errors,
-                );
+                validate_scoping(scoping, &format!("reaction filter {}", i), &mut errors);
             }
 
             if filter.rules.len() == 0 {
-                errors.push(format!(
-                    "reaction filter {} has no rules",
-                    i
-                ));
+                errors.push(format!("reaction filter {} has no rules", i));
             }
         }
     }
@@ -521,7 +547,8 @@ pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig>
     let mut config_path = config_root.join(guild_id.to_string());
     config_path.set_extension("yml");
 
-    let config_string = std::fs::read_to_string(&config_path).wrap_err(format!("Unable to read {:?}", config_path))?;
+    let config_string = std::fs::read_to_string(&config_path)
+        .wrap_err(format!("Unable to read {:?}", config_path))?;
     let config_yaml = serde_yaml::from_str(&config_string)?;
 
     match validate_guild_config(&config_yaml) {
@@ -530,13 +557,21 @@ pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig>
     }
 }
 
-pub fn load_guild_configs(config_root: &Path, guild_ids: &[GuildId]) -> Result<HashMap<GuildId, GuildConfig>, (GuildId, eyre::Report)> {
+pub fn load_guild_configs(
+    config_root: &Path,
+    guild_ids: &[GuildId],
+) -> Result<HashMap<GuildId, GuildConfig>, (GuildId, eyre::Report)> {
     let mut configs = HashMap::new();
 
     for guild_id in guild_ids {
         let guild_id = *guild_id;
 
-        let guild_config = load_config(config_root, guild_id).wrap_err(format!("Unable to load configuration for guild {}", guild_id)).map_err(|e| (guild_id, e))?;
+        let guild_config = load_config(config_root, guild_id)
+            .wrap_err(format!(
+                "Unable to load configuration for guild {}",
+                guild_id
+            ))
+            .map_err(|e| (guild_id, e))?;
         configs.insert(guild_id, guild_config);
     }
 
@@ -548,16 +583,18 @@ pub fn load_all_guild_configs(config_root: &Path) -> Result<()> {
         let entry = entry?;
         if entry.file_type()?.is_file() {
             let path = entry.path();
-            let config_string = std::fs::read_to_string(&path).wrap_err(format!("Unable to read {:?}", path))?;
-            let config_yaml = serde_yaml::from_str(&config_string).wrap_err(format!("Unable to deserialize {:?}", path))?;
-            
+            let config_string =
+                std::fs::read_to_string(&path).wrap_err(format!("Unable to read {:?}", path))?;
+            let config_yaml = serde_yaml::from_str(&config_string)
+                .wrap_err(format!("Unable to deserialize {:?}", path))?;
+
             match validate_guild_config(&config_yaml) {
-                Ok(()) => {},
+                Ok(()) => {}
                 Err(errs) => {
                     let err = LoadConfigError::ValidateError(errs);
                     let err: eyre::Report = err.into();
                     return Err(err.wrap_err(format!("Unable to validate {:?}", path)));
-                },
+                }
             }
         }
     }
