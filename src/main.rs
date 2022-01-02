@@ -81,7 +81,7 @@ fn init_tracing() {
         .with_thread_names(true)
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("chrysanthemum=debug".parse().unwrap())
+                .add_directive("chrysanthemum=trace".parse().unwrap())
             )
         .init();
 }
@@ -255,6 +255,7 @@ async fn handle_event_wrapper(event: Event, state: State) {
 
 #[tracing::instrument("Handling event")]
 async fn handle_event(event: &Event, state: State) -> Result<()> {
+    tracing::trace!(?event, "Handling event");
     match event {
         Event::MessageCreate(message) => {
             let message = &message.0;
@@ -328,6 +329,8 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
             tracing::trace!(?message.guild_id, author = %message.author.id, "Skipping message filtration because message was sent by a bot and include_bots is false for this guild");
             return Ok(());
         }
+
+        tracing::trace!(?message, "Filtering message");
 
         if let Some(message_filters) = &guild_config.messages {
             let (mut filter_result, mut actions, mut filter_name) = (None, None, None);
