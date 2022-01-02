@@ -359,19 +359,21 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
 
             if filter_result.is_none() {
                 if let Some(spam_config) = &guild_config.spam {
-                    let spam_span = tracing::trace_span!("Running spam checks");
-                    let _enter = spam_span.enter();
+                    let scoping = spam_config.scoping.as_ref().or(guild_config.default_scoping.as_ref());
+                    let is_in_scope = scoping.map(|s| s.is_included(message.channel_id, &message.member.as_ref().unwrap().roles)).unwrap_or(false);
 
-                    filter_result = Some(
-                        filter::check_spam_record(
-                            &message,
-                            &spam_config,
-                            state.spam_history.clone(),
-                        )
-                        .await,
-                    );
-                    actions = spam_config.actions.as_ref();
-                    filter_name = Some("Spam")
+                    if is_in_scope {
+                        filter_result = Some(
+                            filter::check_spam_record(
+                                &message,
+                                &spam_config,
+                                state.spam_history.clone(),
+                            )
+                            .await,
+                        );
+                        actions = spam_config.actions.as_ref();
+                        filter_name = Some("Spam")
+                    }
                 }
             }
 
