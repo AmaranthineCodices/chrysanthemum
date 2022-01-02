@@ -298,7 +298,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
 
     // We can't interact with commands until we have an application ID from the
     // gateway. Don't try if we don't have one yet.
-    if state.http.application_id().is_none() {
+    if state.http.application_id().is_some() {
         for (guild_id, new_guild_config) in &new_guild_configs {
             tracing::trace!(%guild_id, "Updating guild commands");
             // We should always have an old guild config when this method is invoked,
