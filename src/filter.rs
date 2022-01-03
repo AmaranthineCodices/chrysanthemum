@@ -125,19 +125,36 @@ impl config::MessageFilterRule {
             config::MessageFilterRule::Words { words } => {
                 let skeleton = crate::confusable::skeletonize(text);
 
+                tracing::trace!(%text, %skeleton, ?words, "Performing word text filtration");
+
                 if let Some(captures) = words.captures(&skeleton) {
                     Err(format!(
                         "contains word `{}`",
                         captures.get(1).unwrap().as_str()
                     ))
-                } else {
+                }
+                else if let Some(captures) = words.captures(&text) {
+                    Err(format!(
+                        "contains word `{}`",
+                        captures.get(1).unwrap().as_str()
+                    ))
+                }
+                else {
                     Ok(())
                 }
             }
             config::MessageFilterRule::Substring { substrings } => {
                 let skeleton = crate::confusable::skeletonize(text);
 
+                tracing::trace!(%text, %skeleton, ?substrings, "Performing substring text filtration");
+
                 if let Some(captures) = substrings.captures(&skeleton) {
+                    Err(format!(
+                        "contains substring `{}`",
+                        captures.get(0).unwrap().as_str()
+                    ))
+                }
+                else if let Some(captures) = substrings.captures(&text) {
                     Err(format!(
                         "contains substring `{}`",
                         captures.get(0).unwrap().as_str()
@@ -149,8 +166,10 @@ impl config::MessageFilterRule {
             config::MessageFilterRule::Regex { regexes } => {
                 let skeleton = crate::confusable::skeletonize(text);
 
+                tracing::trace!(%text, %skeleton, ?regexes, "Performing regex text filtration");
+
                 for regex in regexes {
-                    if regex.is_match(&skeleton) {
+                    if regex.is_match(&skeleton) || regex.is_match(&text) {
                         return Err(format!("matches regex `{}`", regex));
                     }
                 }
