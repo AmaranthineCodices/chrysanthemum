@@ -198,7 +198,18 @@ impl config::MessageFilterRule {
                     .map(|c| c.get(1).unwrap().as_str())
                     // Invites should be handled separately.
                     .filter(|v| (*v) != "discord.gg");
-                filter_values(mode, "domain", &mut link_domains, domains)
+
+                let result = match mode {
+                    config::FilterMode::AllowList => link_domains
+                        // Hack (#12): Treat www.domain.xyz as domain.xyz.
+                        .find(|v| !domains.iter().any(|f| f == v || v == &format!("www.{}", f)))
+                        .map(|v| Err(format!("contains unallowed domain `{}`", v))),
+                    config::FilterMode::DenyList => link_domains
+                        .find(|v| domains.iter().any(|f| f == v || v == &format!("www.{}", f)))
+                        .map(|v| Err(format!("contains denied domain `{}`", v))),
+                };
+
+                result.unwrap_or(Ok(()))
             }
             config::MessageFilterRule::EmojiName { names } => {
                 for capture in CUSTOM_EMOJI_REGEX.get().unwrap().captures_iter(text) {
