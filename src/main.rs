@@ -621,13 +621,20 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         None => return Ok(()),
     };
 
+    let member = match message.member.as_ref() {
+        Some(member) => member,
+        None => {
+            tracing::error!(?message.id, "No `member` field attached to message");
+        }
+    };
+
     let message_info = MessageInfo {
         id: message.id,
         author_id: message.author.id,
         channel_id: message.channel_id,
         timestamp: message.timestamp,
         author_is_bot: message.author.bot,
-        author_roles: &message.member.as_ref().unwrap().roles,
+        author_roles: &member.roles,
         content: &message.content,
         attachments: &message.attachments,
         stickers: &message.sticker_items,
