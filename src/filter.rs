@@ -2,14 +2,14 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
-use twilight_model::channel::{ReactionType, message::Message};
+use twilight_model::channel::ReactionType;
 use twilight_model::id::{ChannelId, RoleId, UserId};
 
 use once_cell::sync::OnceCell;
 use regex::Regex;
 use tokio::sync::RwLock;
 
-use crate::config;
+use crate::{config, MessageInfo};
 
 static ZALGO_REGEX: OnceCell<Regex> = OnceCell::new();
 static INVITE_REGEX: OnceCell<Regex> = OnceCell::new();
@@ -64,7 +64,7 @@ where
 }
 
 impl config::Scoping {
-    pub fn is_included(&self, channel: ChannelId, author_roles: &Vec<RoleId>) -> bool {
+    pub fn is_included(&self, channel: ChannelId, author_roles: &[RoleId]) -> bool {
         if self.include_channels.is_some() {
             if self
                 .include_channels
@@ -102,7 +102,7 @@ impl config::Scoping {
 }
 
 impl config::MessageFilter {
-    pub fn filter_message(&self, message: &Message) -> FilterResult {
+    pub(crate) fn filter_message(&self, message: &MessageInfo<'_>) -> FilterResult {
         self.rules
             .iter()
             .map(|f| f.filter_message(&message))
@@ -132,14 +132,12 @@ impl config::MessageFilterRule {
                         "contains word `{}`",
                         captures.get(1).unwrap().as_str()
                     ))
-                }
-                else if let Some(captures) = words.captures(&text) {
+                } else if let Some(captures) = words.captures(&text) {
                     Err(format!(
                         "contains word `{}`",
                         captures.get(1).unwrap().as_str()
                     ))
-                }
-                else {
+                } else {
                     Ok(())
                 }
             }
@@ -153,8 +151,7 @@ impl config::MessageFilterRule {
                         "contains substring `{}`",
                         captures.get(0).unwrap().as_str()
                     ))
-                }
-                else if let Some(captures) = substrings.captures(&text) {
+                } else if let Some(captures) = substrings.captures(&text) {
                     Err(format!(
                         "contains substring `{}`",
                         captures.get(0).unwrap().as_str()
@@ -162,7 +159,7 @@ impl config::MessageFilterRule {
                 } else {
                     Ok(())
                 }
-            },
+            }
             config::MessageFilterRule::Regex { regexes } => {
                 let skeleton = crate::confusable::skeletonize(text);
 
@@ -229,7 +226,7 @@ impl config::MessageFilterRule {
         }
     }
 
-    pub fn filter_message(&self, message: &Message) -> FilterResult {
+    pub(crate) fn filter_message(&self, message: &MessageInfo<'_>) -> FilterResult {
         match self {
             config::MessageFilterRule::MimeType {
                 mode,
@@ -246,16 +243,14 @@ impl config::MessageFilterRule {
                     .filter_map(|a| a.content_type.as_deref());
                 filter_values(mode, "content type", &mut attachment_types, types)
             }
-            config::MessageFilterRule::StickerId { mode, stickers } => {
-                filter_values(
-                    mode,
-                    "sticker",
-                    &mut message.sticker_items.iter().map(|s| s.id),
-                    stickers,
-                )
-            }
+            config::MessageFilterRule::StickerId { mode, stickers } => filter_values(
+                mode,
+                "sticker",
+                &mut message.stickers.iter().map(|s| s.id),
+                stickers,
+            ),
             config::MessageFilterRule::StickerName { stickers } => {
-                for sticker in &message.sticker_items {
+                for sticker in message.stickers.iter() {
                     let substring_match = stickers.captures_iter(&sticker.name).nth(0);
                     if let Some(substring_match) = substring_match {
                         return Err(format!(
@@ -365,7 +360,7 @@ pub struct SpamRecord {
 }
 
 impl SpamRecord {
-    pub fn from_message(message: &Message) -> SpamRecord {
+    pub(crate) fn from_message(message: &MessageInfo) -> SpamRecord {
         let spoilers = SPOILER_REGEX
             .get()
             .unwrap()
@@ -390,7 +385,7 @@ impl SpamRecord {
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
             // dropped while we still need this.
-            content: message.content.clone(),
+            content: message.content.to_string(),
             emoji: emoji as u8,
             links: links as u8,
             // `as` cast is safe for our purposes. If the message has more than
@@ -482,8 +477,8 @@ fn exceeds_spam_thresholds(
     }
 }
 
-pub async fn check_spam_record(
-    message: &Message,
+pub(crate) async fn check_spam_record(
+    message: &MessageInfo<'_>,
     config: &config::SpamFilter,
     spam_history: Arc<RwLock<SpamHistory>>,
 ) -> FilterResult {
@@ -492,15 +487,15 @@ pub async fn check_spam_record(
         let read_history = spam_history.read().await;
         // This is tricky: We need to release the read lock, acquire a write lock, and
         // then insert the new history entry into the map.
-        if !read_history.contains_key(&message.author.id) {
+        if !read_history.contains_key(&message.author_id) {
             drop(read_history);
 
             let new_history = Arc::new(Mutex::new(VecDeque::new()));
             let mut write_history = spam_history.write().await;
-            write_history.insert(message.author.id, new_history.clone());
+            write_history.insert(message.author_id, new_history.clone());
             new_history
         } else {
-            read_history.get(&message.author.id).unwrap().clone()
+            read_history.get(&message.author_id).unwrap().clone()
         }
     };
 
@@ -525,7 +520,7 @@ pub async fn check_spam_record(
     tracing::trace!(
         "Cleared {} spam records for user {}",
         cleared_count,
-        message.author.id
+        message.author_id
     );
 
     let result = exceeds_spam_thresholds(&spam_history, &new_spam_record, &config);
