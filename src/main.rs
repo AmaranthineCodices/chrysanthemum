@@ -624,7 +624,11 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
     let member = match message.member.as_ref() {
         Some(member) => member,
         None => {
-            tracing::error!(?message.id, "No `member` field attached to message");
+            // For non-bot users, this should always be set.
+            if !message.author.bot {
+                tracing::error!(?message.id, "No `member` field attached to message");
+            }
+
             return Ok(())
         }
     };
