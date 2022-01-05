@@ -625,6 +625,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         Some(member) => member,
         None => {
             tracing::error!(?message.id, "No `member` field attached to message");
+            return Ok(())
         }
     };
 
