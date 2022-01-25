@@ -265,7 +265,7 @@ async fn handle_event_wrapper(event: Event, state: State) {
     let time = end - start;
 
     if let Err(report) = result {
-        tracing::error!(result = %report, "Error handling event");
+        tracing::error!(result = %report, event = ?event, "Error handling event");
     }
 
     let (guild_id, channel_id, action_kind) = match event {
