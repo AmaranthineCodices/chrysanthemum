@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -312,7 +313,6 @@ async fn handle_event_wrapper(event: Event, state: State) {
 
 #[tracing::instrument("Handling event")]
 async fn handle_event(event: &Event, state: State) -> Result<()> {
-    tracing::trace!(?event, "Handling event");
     match event {
         Event::MessageCreate(message) => {
             let message = &message.0;
@@ -576,6 +576,29 @@ async fn filter_message_info(
                                     .replace("$USER_ID", &message_info.author_id.to_string());
                                 let formatted_content =
                                     formatted_content.replace("$FILTER_REASON", &reason);
+
+                                const MAX_CHARS: usize = 2_000;
+                                const MESSAGE_PREVIEW: &'static str = "$MESSAGE_PREVIEW";
+                                const ELLIPSIS: &'static str = "…";
+
+                                let formatted_content = if formatted_content.contains(MESSAGE_PREVIEW) {
+                                    let available_length = MAX_CHARS - formatted_content.len() - MESSAGE_PREVIEW.len();
+                                    let truncated_content = if message_info.content.len() > available_length {
+                                        let mut last_index = available_length - ELLIPSIS.len();
+                                        while !message_info.content.is_char_boundary(last_index) {
+                                            last_index -= 1;
+                                        }
+
+                                        Cow::Owned(format!("{}{}", &message_info.content[0..last_index], ELLIPSIS))
+                                    } else {
+                                        Cow::Borrowed(message_info.content)
+                                    };
+
+                                    debug_assert!(truncated_content.len() <= available_length);
+                                    formatted_content.replacen(MESSAGE_PREVIEW, &truncated_content, 1)
+                                } else {
+                                    formatted_content
+                                };
 
                                 let result = state
                                     .http
