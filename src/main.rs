@@ -23,21 +23,22 @@ use twilight_http::request::prelude::RequestReactionType;
 use twilight_http::Client as HttpClient;
 use twilight_mention::Mention;
 use twilight_model::application::interaction::Interaction;
-use twilight_model::channel::message::sticker::MessageSticker;
-use twilight_model::channel::{Attachment, Message, Reaction, ReactionType};
-use twilight_model::datetime::Timestamp;
+use twilight_model::channel::{Message, Reaction, ReactionType};
 use twilight_model::gateway::Intents;
+use twilight_model::gateway::payload::incoming::MessageUpdate;
+use twilight_model::id::{CommandId, GuildId};
 
 use color_eyre::eyre::Result;
 
 use config::*;
-use twilight_model::gateway::payload::incoming::MessageUpdate;
-use twilight_model::id::{ChannelId, CommandId, GuildId, MessageId, RoleId, UserId};
+use model::MessageInfo;
 
+mod action;
 mod command;
 mod config;
 mod confusable;
 mod filter;
+mod model;
 
 const DEFAULT_RELOAD_INTERVAL: u64 = 5 * 60;
 
@@ -78,19 +79,6 @@ struct ReactionFilterReport {
     time: DateTime<Utc>,
     guild: String,
     channel: String,
-}
-
-#[derive(Debug)]
-struct MessageInfo<'a> {
-    author_is_bot: bool,
-    id: MessageId,
-    author_id: UserId,
-    channel_id: ChannelId,
-    author_roles: &'a [RoleId],
-    content: &'a str,
-    timestamp: Timestamp,
-    attachments: &'a [Attachment],
-    stickers: &'a [MessageSticker],
 }
 
 #[cfg(debug_assertions)]
