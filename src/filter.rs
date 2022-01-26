@@ -530,7 +530,6 @@ pub(crate) async fn check_spam_record(
 
 #[cfg(test)]
 mod test {
-
     mod scoping {
         use pretty_assertions::assert_eq;
         use twilight_model::id::{RoleId, ChannelId};
@@ -580,6 +579,26 @@ mod test {
             assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES), true);
             assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]), false);
             assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]), true);
+        }
+
+        #[test]
+        fn complex_scoping() {
+            let scoping = Scoping {
+                include_channels: Some(vec![
+                    ChannelId::new(1).unwrap(),
+                ]),
+                exclude_channels: None,
+                exclude_roles: Some(vec![
+                    RoleId::new(1).unwrap(),
+                ])
+            };
+
+            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES), true);
+            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES), false);
+            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]), false);
+            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(1).unwrap()]), false);
+            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]), true);
+            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(2).unwrap()]), false);
         }
     }
 }
