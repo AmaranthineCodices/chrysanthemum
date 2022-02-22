@@ -62,6 +62,6 @@ mod test {
 
     #[test]
     fn test_skeletonize() {
-        assert_eq!(skeletonize("ρɑɣρɑI"), "paypal");
+        assert_eq!(skeletonize("ρɑɣρɑl"), "paypal");
     }
 }

@@ -27,7 +27,7 @@ pub fn init_globals() {
         .set(Regex::new("\\u0303|\\u035F|\\u034F|\\u0327|\\u031F|\\u0353|\\u032F|\\u0318|\\u0353|\\u0359|\\u0354").unwrap());
     let _ = INVITE_REGEX.set(Regex::new("discord.gg/(\\w+)").unwrap());
     let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
-    let _ = SPOILER_REGEX.set(Regex::new("||[^|]*||").unwrap());
+    let _ = SPOILER_REGEX.set(Regex::new("\\|\\|[^\\|]*\\|\\|").unwrap());
     let _ = EMOJI_REGEX.set(
         Regex::new("\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}").unwrap(),
     );
@@ -599,6 +599,528 @@ mod test {
             assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(1).unwrap()]), false);
             assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]), true);
             assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(2).unwrap()]), false);
+        }
+    }
+
+    mod messages {
+        use std::num::NonZeroU64;
+
+        use pretty_assertions::assert_eq;
+
+        use regex::Regex;
+        use twilight_model::{id::{MessageId, UserId, ChannelId, AttachmentId}, datetime::Timestamp, channel::{Attachment, message::sticker::{MessageSticker, StickerId}}};
+
+        use crate::{config::{MessageFilterRule, FilterMode}, model::MessageInfo};
+
+        fn good_message() -> MessageInfo<'static> {
+            MessageInfo {
+                author_is_bot: false,
+                id: MessageId(NonZeroU64::new(1).unwrap()),
+                author_id: UserId(NonZeroU64::new(1).unwrap()),
+                channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
+                author_roles: &[],
+                content: "this is an okay message https://discord.gg/ discord.gg/roblox",
+                timestamp: Timestamp::from_secs(100).unwrap(),
+                attachments: &[],
+                stickers: &[],
+            }
+        }
+
+        fn bad_message() -> MessageInfo<'static> {
+            MessageInfo {
+                author_is_bot: false,
+                id: MessageId(NonZeroU64::new(1).unwrap()),
+                author_id: UserId(NonZeroU64::new(1).unwrap()),
+                channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
+                author_roles: &[],
+                content: "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver",
+                timestamp: Timestamp::from_secs(100).unwrap(),
+                attachments: &[],
+                stickers: &[],
+            }
+        }
+
+        #[test]
+        fn filter_words() {
+            let rule = MessageFilterRule::Words {
+                words: Regex::new("\\b(bad|asdf)\\b").unwrap(),
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains word `asdf`".to_owned()));
+        }
+
+        #[test]
+        fn filter_substrings() {
+            let rule = MessageFilterRule::Substring {
+                substrings: Regex::new("(bad|asdf)").unwrap(),
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains substring `asdf`".to_owned()))
+        }
+
+        #[test]
+        fn filter_regex() {
+            let rule = MessageFilterRule::Regex {
+                regexes: vec![
+                    Regex::new("sd").unwrap(),
+                ],
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("matches regex `sd`".to_owned()));
+        }
+
+        #[test]
+        fn filter_zalgo() {
+            super::super::init_globals();
+
+            let rule = MessageFilterRule::Zalgo;
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains zalgo".to_owned()));
+        }
+
+        #[test]
+        fn filter_mimetype_deny() {
+            let rule = MessageFilterRule::MimeType {
+                mode: FilterMode::DenyList,
+                types: vec!["image/png".to_owned()],
+                allow_unknown: false,
+            };
+
+            let mut ok_message = good_message();
+            let ok_attachments = [
+                Attachment {
+                    content_type: Some("image/jpg".to_owned()),
+                    ephemeral: false,
+                    filename: "file".to_owned(),
+                    description: None,
+                    height: None,
+                    id: AttachmentId::new(1).unwrap(),
+                    proxy_url: "doesn't_matter".to_owned(),
+                    size: 1,
+                    url: "doesn't_matter".to_owned(),
+                    width: None,
+                }
+            ];
+            ok_message.attachments = &ok_attachments;
+
+            let mut wrong_message = bad_message();
+            let wrong_attachments = [Attachment {
+                content_type: Some("image/png".to_owned()),
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
+            wrong_message.attachments = &wrong_attachments;
+
+            let mut missing_content_type_message = bad_message();
+            let missing_content_type_attachments = [Attachment {
+                content_type: None,
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
+            missing_content_type_message.attachments = &missing_content_type_attachments;
+
+            assert_eq!(rule.filter_message(&ok_message), Ok(()));
+            assert_eq!(rule.filter_message(&wrong_message), Err("contains denied content type `image/png`".to_owned()));
+            assert_eq!(rule.filter_message(&missing_content_type_message), Err("unknown content type for attachment".to_owned()));
+        }
+
+        #[test]
+        fn filter_mimetype_allow() {
+            let rule = MessageFilterRule::MimeType {
+                mode: FilterMode::AllowList,
+                types: vec!["image/png".to_owned()],
+                allow_unknown: false,
+            };
+
+            let mut ok_message = good_message();
+            let ok_attachments = [
+                Attachment {
+                    content_type: Some("image/png".to_owned()),
+                    ephemeral: false,
+                    filename: "file".to_owned(),
+                    description: None,
+                    height: None,
+                    id: AttachmentId::new(1).unwrap(),
+                    proxy_url: "doesn't_matter".to_owned(),
+                    size: 1,
+                    url: "doesn't_matter".to_owned(),
+                    width: None,
+                }
+            ];
+            ok_message.attachments = &ok_attachments;
+
+            let mut wrong_message = bad_message();
+            let wrong_attachments = [Attachment {
+                content_type: Some("image/jpg".to_owned()),
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
+            wrong_message.attachments = &wrong_attachments;
+
+            let mut missing_content_type_message = bad_message();
+            let missing_content_type_attachments = [Attachment {
+                content_type: None,
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
+            missing_content_type_message.attachments = &missing_content_type_attachments;
+
+            assert_eq!(rule.filter_message(&ok_message), Ok(()));
+            assert_eq!(rule.filter_message(&wrong_message), Err("contains unallowed content type `image/jpg`".to_owned()));
+            assert_eq!(rule.filter_message(&missing_content_type_message), Err("unknown content type for attachment".to_owned()));
+        }
+
+        #[test]
+        fn filter_domain_deny() {
+            super::super::init_globals();
+
+            let rule = MessageFilterRule::Link {
+                mode: FilterMode::DenyList,
+                domains: vec!["example.com".to_owned()],
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains denied domain `example.com`".to_owned()));
+        }
+
+        #[test]
+        fn filter_domain_allow() {
+            super::super::init_globals();
+
+            let rule = MessageFilterRule::Link {
+                mode: FilterMode::AllowList,
+                domains: vec!["discord.gg".to_owned()],
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains unallowed domain `example.com`".to_owned()));
+        }
+
+        #[test]
+        fn filter_invite_deny() {
+            super::super::init_globals();
+
+            let rule = MessageFilterRule::Invite {
+                mode: FilterMode::DenyList,
+                invites: vec!["evilserver".to_owned()],
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains denied invite `evilserver`".to_owned()));
+        }
+
+        #[test]
+        fn filter_invite_allow() {
+            super::super::init_globals();
+
+            let rule = MessageFilterRule::Invite {
+                mode: FilterMode::AllowList,
+                invites: vec!["roblox".to_owned()],
+            };
+
+            assert_eq!(rule.filter_message(&good_message()), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message()), Err("contains unallowed invite `evilserver`".to_owned()));
+        }
+
+        #[test]
+        fn filter_sticker_name() {
+            let rule = MessageFilterRule::StickerName {
+                stickers: Regex::new("(badsticker)").unwrap(),
+            };
+
+            let mut good_message = good_message();
+            let good_stickers = [MessageSticker {
+                format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
+                id: StickerId::new(1).unwrap(),
+                name: "goodsticker".to_owned(),
+            }];
+            good_message.stickers = &good_stickers;
+
+            let mut bad_message = bad_message();
+            let bad_stickers = [MessageSticker {
+                format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
+                id: StickerId::new(1).unwrap(),
+                name: "badsticker".to_owned(),
+            }];
+            bad_message.stickers = &bad_stickers;
+
+            assert_eq!(rule.filter_message(&good_message), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message), Err("contains sticker with denied name substring `badsticker`".to_owned()));
+        }
+
+        #[test]
+        fn filter_sticker_id_allow() {
+            let rule = MessageFilterRule::StickerId {
+                mode: FilterMode::AllowList,
+                stickers: vec![StickerId::new(1).unwrap()],
+            };
+
+            let mut good_message = good_message();
+            let good_stickers = [MessageSticker {
+                format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
+                id: StickerId::new(1).unwrap(),
+                name: "goodsticker".to_owned(),
+            }];
+            good_message.stickers = &good_stickers;
+
+            let mut bad_message = bad_message();
+            let bad_stickers = [MessageSticker {
+                format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
+                id: StickerId::new(2).unwrap(),
+                name: "badsticker".to_owned(),
+            }];
+            bad_message.stickers = &bad_stickers;
+
+            assert_eq!(rule.filter_message(&good_message), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message), Err("contains unallowed sticker `2`".to_owned()));
+        }
+
+        #[test]
+        fn filter_sticker_id_deny() {
+            let rule = MessageFilterRule::StickerId {
+                mode: FilterMode::DenyList,
+                stickers: vec![StickerId::new(2).unwrap()],
+            };
+
+            let mut good_message = good_message();
+            let good_stickers = [MessageSticker {
+                format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
+                id: StickerId::new(1).unwrap(),
+                name: "goodsticker".to_owned(),
+            }];
+            good_message.stickers = &good_stickers;
+
+            let mut bad_message = bad_message();
+            let bad_stickers = [MessageSticker {
+                format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
+                id: StickerId::new(2).unwrap(),
+                name: "badsticker".to_owned(),
+            }];
+            bad_message.stickers = &bad_stickers;
+
+            assert_eq!(rule.filter_message(&good_message), Ok(()));
+            assert_eq!(rule.filter_message(&bad_message), Err("contains denied sticker `2`".to_owned()));
+        }
+    }
+
+    mod spam {
+        use std::{num::NonZeroU64, collections::VecDeque};
+
+        use pretty_assertions::assert_eq;
+
+        use twilight_model::{id::{MessageId, UserId, ChannelId, AttachmentId}, datetime::Timestamp, channel::Attachment};
+
+        use crate::{model::MessageInfo, filter::{SpamRecord, exceeds_spam_thresholds}, config::SpamFilter};
+
+        #[test]
+        fn spam_record_creation() {
+            super::super::init_globals();
+
+            let mut info = MessageInfo {
+                author_is_bot: false,
+                id: MessageId(NonZeroU64::new(1).unwrap()),
+                author_id: UserId(NonZeroU64::new(1).unwrap()),
+                channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
+                author_roles: &[],
+                content: "test message https://discord.gg/ ||spoiler|| 💟 <@123>",
+                timestamp: Timestamp::from_secs(100).unwrap(),
+                attachments: &[],
+                stickers: &[],
+            };
+
+            let attachments = [
+                Attachment {
+                    content_type: Some("image/jpg".to_owned()),
+                    ephemeral: false,
+                    filename: "file".to_owned(),
+                    description: None,
+                    height: None,
+                    id: AttachmentId::new(1).unwrap(),
+                    proxy_url: "doesn't_matter".to_owned(),
+                    size: 1,
+                    url: "doesn't_matter".to_owned(),
+                    width: None,
+                }
+            ];
+            info.attachments = &attachments;
+
+            let record = SpamRecord::from_message(&info);
+            assert_eq!(record.content, info.content);
+            assert_eq!(record.spoilers, 1);
+            assert_eq!(record.emoji, 1);
+            assert_eq!(record.links, 1);
+            assert_eq!(record.mentions, 1);
+            assert_eq!(record.attachments, 1);
+            assert_eq!(record.sent_at, 100_000_000);
+        }
+
+        fn setup_for_testing() -> (VecDeque<SpamRecord>, SpamFilter) {
+            let mut history = VecDeque::new();
+            let config = SpamFilter {
+                emoji: Some(2),
+                duplicates: Some(1),
+                links: Some(2),
+                attachments: Some(2),
+                spoilers: Some(2),
+                mentions: Some(2),
+                interval: 30,
+                actions: None,
+                scoping: None,
+            };
+
+            let initial_record = SpamRecord {
+                content: "asdf".to_owned(),
+                spoilers: 1,
+                emoji: 1,
+                links: 1,
+                mentions: 1,
+                attachments: 1,
+                sent_at: 0,
+            };
+
+            history.push_back(initial_record);
+
+            (history, config)
+        }
+
+        #[test]
+        fn spam_checker_noop() {
+            let (history, config) = setup_for_testing();
+
+            let succeeding_record = SpamRecord {
+                content: "not asdf".to_owned(),
+                spoilers: 0,
+                emoji: 0,
+                links: 0,
+                mentions: 0,
+                attachments: 0,
+                sent_at: 10,
+            };
+
+            let result = exceeds_spam_thresholds(&history, &succeeding_record, &config);
+            assert_eq!(result, Ok(()))
+        }
+
+        #[test]
+        fn content_spam_checker() {
+            let (history, config) = setup_for_testing();
+
+            let failing_record = SpamRecord {
+                content: "asdf".to_owned(),
+                spoilers: 0,
+                emoji: 0,
+                links: 0,
+                mentions: 0,
+                attachments: 0,
+                sent_at: 10,
+            };
+
+            let result = exceeds_spam_thresholds(&history, &failing_record, &config);
+            assert_eq!(result, Err("sent too many duplicate messages".to_owned()));
+        }
+
+        #[test]
+        fn emoji_spam_checker() {
+            let (history, config) = setup_for_testing();
+
+            let failing_record = SpamRecord {
+                content: "foo".to_owned(),
+                spoilers: 0,
+                emoji: 2,
+                links: 0,
+                mentions: 0,
+                attachments: 0,
+                sent_at: 10,
+            };
+
+            let result = exceeds_spam_thresholds(&history, &failing_record, &config);
+            assert_eq!(result, Err("sent too many emoji".to_owned()));
+        }
+
+        #[test]
+        fn link_spam_checker() {
+            let (history, config) = setup_for_testing();
+
+            let failing_record = SpamRecord {
+                content: "foo".to_owned(),
+                spoilers: 0,
+                emoji: 0,
+                links: 2,
+                mentions: 0,
+                attachments: 0,
+                sent_at: 10,
+            };
+
+            let result = exceeds_spam_thresholds(&history, &failing_record, &config);
+            assert_eq!(result, Err("sent too many links".to_owned()));
+        }
+
+        #[test]
+        fn mention_spam_checker() {
+            let (history, config) = setup_for_testing();
+
+            let failing_record = SpamRecord {
+                content: "foo".to_owned(),
+                spoilers: 0,
+                emoji: 0,
+                links: 0,
+                mentions: 2,
+                attachments: 0,
+                sent_at: 10,
+            };
+
+            let result = exceeds_spam_thresholds(&history, &failing_record, &config);
+            assert_eq!(result, Err("sent too many mentions".to_owned()));
+        }
+
+        #[test]
+        fn attachment_spam_checker() {
+            let (history, config) = setup_for_testing();
+
+            let failing_record = SpamRecord {
+                content: "foo".to_owned(),
+                spoilers: 0,
+                emoji: 0,
+                links: 0,
+                mentions: 0,
+                attachments: 2,
+                sent_at: 10,
+            };
+
+            let result = exceeds_spam_thresholds(&history, &failing_record, &config);
+            assert_eq!(result, Err("sent too many attachments".to_owned()));
         }
     }
 }
