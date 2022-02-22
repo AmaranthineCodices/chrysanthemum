@@ -612,28 +612,17 @@ mod test {
 
         use crate::{config::{MessageFilterRule, FilterMode}, model::MessageInfo};
 
-        fn good_message() -> MessageInfo<'static> {
-            MessageInfo {
-                author_is_bot: false,
-                id: MessageId(NonZeroU64::new(1).unwrap()),
-                author_id: UserId(NonZeroU64::new(1).unwrap()),
-                channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
-                author_roles: &[],
-                content: "this is an okay message https://discord.gg/ discord.gg/roblox",
-                timestamp: Timestamp::from_secs(100).unwrap(),
-                attachments: &[],
-                stickers: &[],
-            }
-        }
+        const GOOD_CONTENT: &'static str = "this is an okay message https://discord.gg/ discord.gg/roblox";
+        const BAD_CONTENT: &'static str = "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
 
-        fn bad_message() -> MessageInfo<'static> {
+        fn message(content: &'static str) -> MessageInfo<'static> {
             MessageInfo {
                 author_is_bot: false,
                 id: MessageId(NonZeroU64::new(1).unwrap()),
                 author_id: UserId(NonZeroU64::new(1).unwrap()),
                 channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
                 author_roles: &[],
-                content: "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver",
+                content: content,
                 timestamp: Timestamp::from_secs(100).unwrap(),
                 attachments: &[],
                 stickers: &[],
@@ -646,8 +635,8 @@ mod test {
                 words: Regex::new("\\b(bad|asdf)\\b").unwrap(),
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains word `asdf`".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains word `asdf`".to_owned()));
         }
 
         #[test]
@@ -656,8 +645,8 @@ mod test {
                 substrings: Regex::new("(bad|asdf)").unwrap(),
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains substring `asdf`".to_owned()))
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains substring `asdf`".to_owned()))
         }
 
         #[test]
@@ -668,8 +657,8 @@ mod test {
                 ],
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("matches regex `sd`".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("matches regex `sd`".to_owned()));
         }
 
         #[test]
@@ -678,8 +667,8 @@ mod test {
 
             let rule = MessageFilterRule::Zalgo;
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains zalgo".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains zalgo".to_owned()));
         }
 
         #[test]
@@ -690,7 +679,7 @@ mod test {
                 allow_unknown: false,
             };
 
-            let mut ok_message = good_message();
+            let mut ok_message = message(GOOD_CONTENT);
             let ok_attachments = [
                 Attachment {
                     content_type: Some("image/jpg".to_owned()),
@@ -707,7 +696,7 @@ mod test {
             ];
             ok_message.attachments = &ok_attachments;
 
-            let mut wrong_message = bad_message();
+            let mut wrong_message = message(BAD_CONTENT);
             let wrong_attachments = [Attachment {
                 content_type: Some("image/png".to_owned()),
                 ephemeral: false,
@@ -722,7 +711,7 @@ mod test {
             }];
             wrong_message.attachments = &wrong_attachments;
 
-            let mut missing_content_type_message = bad_message();
+            let mut missing_content_type_message = message(BAD_CONTENT);
             let missing_content_type_attachments = [Attachment {
                 content_type: None,
                 ephemeral: false,
@@ -750,7 +739,7 @@ mod test {
                 allow_unknown: false,
             };
 
-            let mut ok_message = good_message();
+            let mut ok_message = message(GOOD_CONTENT);
             let ok_attachments = [
                 Attachment {
                     content_type: Some("image/png".to_owned()),
@@ -767,7 +756,7 @@ mod test {
             ];
             ok_message.attachments = &ok_attachments;
 
-            let mut wrong_message = bad_message();
+            let mut wrong_message = message(BAD_CONTENT);
             let wrong_attachments = [Attachment {
                 content_type: Some("image/jpg".to_owned()),
                 ephemeral: false,
@@ -782,7 +771,7 @@ mod test {
             }];
             wrong_message.attachments = &wrong_attachments;
 
-            let mut missing_content_type_message = bad_message();
+            let mut missing_content_type_message = message(BAD_CONTENT);
             let missing_content_type_attachments = [Attachment {
                 content_type: None,
                 ephemeral: false,
@@ -811,8 +800,8 @@ mod test {
                 domains: vec!["example.com".to_owned()],
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains denied domain `example.com`".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains denied domain `example.com`".to_owned()));
         }
 
         #[test]
@@ -824,8 +813,8 @@ mod test {
                 domains: vec!["discord.gg".to_owned()],
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains unallowed domain `example.com`".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains unallowed domain `example.com`".to_owned()));
         }
 
         #[test]
@@ -837,8 +826,8 @@ mod test {
                 invites: vec!["evilserver".to_owned()],
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains denied invite `evilserver`".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains denied invite `evilserver`".to_owned()));
         }
 
         #[test]
@@ -850,8 +839,8 @@ mod test {
                 invites: vec!["roblox".to_owned()],
             };
 
-            assert_eq!(rule.filter_message(&good_message()), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message()), Err("contains unallowed invite `evilserver`".to_owned()));
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains unallowed invite `evilserver`".to_owned()));
         }
 
         #[test]
@@ -860,7 +849,7 @@ mod test {
                 stickers: Regex::new("(badsticker)").unwrap(),
             };
 
-            let mut good_message = good_message();
+            let mut good_message = message(GOOD_CONTENT);
             let good_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
                 id: StickerId::new(1).unwrap(),
@@ -868,7 +857,7 @@ mod test {
             }];
             good_message.stickers = &good_stickers;
 
-            let mut bad_message = bad_message();
+            let mut bad_message = message(BAD_CONTENT);
             let bad_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
                 id: StickerId::new(1).unwrap(),
@@ -887,7 +876,7 @@ mod test {
                 stickers: vec![StickerId::new(1).unwrap()],
             };
 
-            let mut good_message = good_message();
+            let mut good_message = message(GOOD_CONTENT);
             let good_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
                 id: StickerId::new(1).unwrap(),
@@ -895,7 +884,7 @@ mod test {
             }];
             good_message.stickers = &good_stickers;
 
-            let mut bad_message = bad_message();
+            let mut bad_message = message(BAD_CONTENT);
             let bad_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
                 id: StickerId::new(2).unwrap(),
@@ -914,7 +903,7 @@ mod test {
                 stickers: vec![StickerId::new(2).unwrap()],
             };
 
-            let mut good_message = good_message();
+            let mut good_message = message(GOOD_CONTENT);
             let good_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
                 id: StickerId::new(1).unwrap(),
@@ -922,7 +911,7 @@ mod test {
             }];
             good_message.stickers = &good_stickers;
 
-            let mut bad_message = bad_message();
+            let mut bad_message = message(BAD_CONTENT);
             let bad_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
                 id: StickerId::new(2).unwrap(),
@@ -932,6 +921,33 @@ mod test {
 
             assert_eq!(rule.filter_message(&good_message), Ok(()));
             assert_eq!(rule.filter_message(&bad_message), Err("contains denied sticker `2`".to_owned()));
+        }
+    
+        #[test]
+        fn filter_words_with_skeletonization() {
+            let rule = MessageFilterRule::Words {
+                words: Regex::new("\\b(bad)\\b").unwrap(),
+            };
+
+            assert_eq!(rule.filter_message(&message("b⍺d message")), Err("contains word `bad`".to_owned()));
+        }
+
+        #[test]
+        fn filter_substrings_with_skeletonization() {
+            let rule = MessageFilterRule::Substring {
+                substrings: Regex::new("(bad)").unwrap(),
+            };
+
+            assert_eq!(rule.filter_message(&message("b⍺dmessage")), Err("contains substring `bad`".to_owned()));
+        }
+
+        #[test]
+        fn filter_regex_with_skeletonization() {
+            let rule = MessageFilterRule::Regex {
+                regexes: vec![Regex::new("bad").unwrap()],
+            };
+
+            assert_eq!(rule.filter_message(&message("b⍺dmessage")), Err("matches regex `bad`".to_owned()));
         }
     }
 
