@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
 use twilight_model::channel::ReactionType;
 use twilight_model::id::{ChannelId, RoleId, UserId};
 
