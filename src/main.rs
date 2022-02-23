@@ -433,11 +433,13 @@ async fn filter_message_info(
                         .unwrap_or(false);
 
                     if is_in_scope {
+                        let now = (Utc::now().timestamp_millis() as u64) * 1000;
                         filter_result = Some(
                             filter::check_spam_record(
                                 &message_info,
                                 &spam_config,
                                 state.spam_history.clone(),
+                                now,
                             )
                             .await,
                         );

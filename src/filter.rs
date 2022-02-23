@@ -481,6 +481,7 @@ pub(crate) async fn check_spam_record(
     message: &MessageInfo<'_>,
     config: &config::SpamFilter,
     spam_history: Arc<RwLock<SpamHistory>>,
+    now: u64,
 ) -> FilterResult {
     let new_spam_record = SpamRecord::from_message(&message);
     let author_spam_history = {
@@ -501,12 +502,11 @@ pub(crate) async fn check_spam_record(
 
     let mut spam_history = author_spam_history.lock().unwrap();
 
-    let now = (Utc::now().timestamp_millis() as u64) * 1000;
     let mut cleared_count = 0;
     loop {
         match spam_history.front() {
             Some(front) => {
-                if now - front.sent_at > (config.interval as u64) * 1_000_000 {
+                if now.saturating_sub(front.sent_at) > (config.interval as u64) * 1_000_000 {
                     spam_history.pop_front();
                     cleared_count += 1;
                 } else {
@@ -530,6 +530,35 @@ pub(crate) async fn check_spam_record(
 
 #[cfg(test)]
 mod test {
+    use std::num::NonZeroU64;
+
+    use twilight_model::{id::{MessageId, UserId, ChannelId}, datetime::Timestamp};
+
+    use crate::model::MessageInfo;
+
+    const GOOD_CONTENT: &'static str = "this is an okay message https://discord.gg/ discord.gg/roblox";
+    const BAD_CONTENT: &'static str = "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
+
+    fn message(content: &'static str) -> MessageInfo<'static> {
+        MessageInfo {
+            author_is_bot: false,
+            id: MessageId(NonZeroU64::new(1).unwrap()),
+            author_id: UserId(NonZeroU64::new(1).unwrap()),
+            channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
+            author_roles: &[],
+            content: content,
+            timestamp: Timestamp::from_secs(100).unwrap(),
+            attachments: &[],
+            stickers: &[],
+        }
+    }
+
+    fn message_at_time(content: &'static str, timestamp: u64) -> MessageInfo<'static> {
+        let mut info = message(content);
+        info.timestamp = Timestamp::from_secs(timestamp).unwrap();
+        info
+    }
+
     mod scoping {
         use pretty_assertions::assert_eq;
         use twilight_model::id::{RoleId, ChannelId};
@@ -603,31 +632,13 @@ mod test {
     }
 
     mod messages {
-        use std::num::NonZeroU64;
-
         use pretty_assertions::assert_eq;
 
         use regex::Regex;
-        use twilight_model::{id::{MessageId, UserId, ChannelId, AttachmentId}, datetime::Timestamp, channel::{Attachment, message::sticker::{MessageSticker, StickerId}}};
+        use twilight_model::{id::{AttachmentId}, channel::{Attachment, message::sticker::{MessageSticker, StickerId}}};
 
-        use crate::{config::{MessageFilterRule, FilterMode}, model::MessageInfo};
-
-        const GOOD_CONTENT: &'static str = "this is an okay message https://discord.gg/ discord.gg/roblox";
-        const BAD_CONTENT: &'static str = "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
-
-        fn message(content: &'static str) -> MessageInfo<'static> {
-            MessageInfo {
-                author_is_bot: false,
-                id: MessageId(NonZeroU64::new(1).unwrap()),
-                author_id: UserId(NonZeroU64::new(1).unwrap()),
-                channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
-                author_roles: &[],
-                content: content,
-                timestamp: Timestamp::from_secs(100).unwrap(),
-                attachments: &[],
-                stickers: &[],
-            }
-        }
+        use crate::config::{MessageFilterRule, FilterMode};
+        use super::{message, GOOD_CONTENT, BAD_CONTENT};
 
         #[test]
         fn filter_words() {
@@ -952,13 +963,16 @@ mod test {
     }
 
     mod spam {
-        use std::{num::NonZeroU64, collections::VecDeque};
+        use std::{num::NonZeroU64, collections::{VecDeque, HashMap}, sync::Arc};
 
         use pretty_assertions::assert_eq;
 
+        use tokio::sync::RwLock;
         use twilight_model::{id::{MessageId, UserId, ChannelId, AttachmentId}, datetime::Timestamp, channel::Attachment};
 
-        use crate::{model::MessageInfo, filter::{SpamRecord, exceeds_spam_thresholds}, config::SpamFilter};
+        use crate::{model::MessageInfo, filter::{SpamRecord, exceeds_spam_thresholds, init_globals}, config::SpamFilter};
+
+        use super::{message_at_time, GOOD_CONTENT};
 
         #[test]
         fn spam_record_creation() {
@@ -1137,6 +1151,43 @@ mod test {
 
             let result = exceeds_spam_thresholds(&history, &failing_record, &config);
             assert_eq!(result, Err("sent too many attachments".to_owned()));
+        }
+    
+        #[tokio::test]
+        async fn remove_old_records() {
+            init_globals();
+
+            let history = HashMap::new();
+
+            let config = SpamFilter {
+                emoji: None,
+                duplicates: Some(1),
+                links: None,
+                attachments: None,
+                spoilers: None,
+                mentions: None,
+                interval: 30,
+                actions: None,
+                scoping: None,
+            };
+
+            let history = Arc::new(RwLock::new(history));
+
+            let first_message = message_at_time(GOOD_CONTENT, 5);
+            let result = super::super::check_spam_record(&first_message, &config, history.clone(), 10 * 1_000_000).await;
+            assert_eq!(result, Ok(()));
+
+            let second_message = message_at_time(GOOD_CONTENT, 15);
+            let result = super::super::check_spam_record(&second_message, &config, history.clone(), 20 * 1_000_000).await;
+            assert_eq!(result, Err("sent too many duplicate messages".to_owned()));
+
+            let third_message = message_at_time(GOOD_CONTENT, 45);
+            let result = super::super::check_spam_record(&third_message, &config, history.clone(), 60 * 1_000_000).await;
+            assert_eq!(result, Ok(()));
+
+            let read_history = history.read().await;
+            let read_history_queue = read_history.get(&UserId::new(1).unwrap()).expect("user ID not in spam record?").lock().expect("couldn't lock mutex");
+            assert_eq!(read_history_queue.len(), 1);
         }
     }
 }
