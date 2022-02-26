@@ -1156,7 +1156,7 @@ mod test {
             assert_eq!(result, Ok(()));
 
             let read_history = history.read().await;
-            let read_history_queue = read_history.get(&UserId::new(1).unwrap()).expect("user ID not in spam record?").lock().expect("couldn't lock mutex");
+            let read_history_queue = read_history.get(&crate::model::test::USER_ID).expect("user ID not in spam record?").lock().expect("couldn't lock mutex");
             assert_eq!(read_history_queue.len(), 1);
         }
     }
