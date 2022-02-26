@@ -29,7 +29,7 @@ pub(crate) struct ReactionInfo<'a> {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use twilight_model::{id::{MessageId, UserId, ChannelId, EmojiId}, datetime::Timestamp, channel::ReactionType};
+    use twilight_model::{id::{MessageId, UserId, ChannelId}, datetime::Timestamp, channel::ReactionType};
 
     use super::{MessageInfo, ReactionInfo};
 
