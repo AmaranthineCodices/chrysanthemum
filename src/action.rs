@@ -17,6 +17,7 @@ pub(crate) enum MessageAction {
     SendMessage {
         to: ChannelId,
         content: String,
+        requires_armed: bool,
     },
     SendLog {
         to: ChannelId,
@@ -25,7 +26,7 @@ pub(crate) enum MessageAction {
         content: String,
         filter_reason: String,
         author: UserId,
-        context: String,
+        context: &'static str,
     },
 }
 
@@ -38,7 +39,7 @@ impl MessageAction {
             } => {
                 http.delete_message(*channel_id, *message_id).exec().await?;
             }
-            Self::SendMessage { to, content } => {
+            Self::SendMessage { to, content, .. } => {
                 http.create_message(*to).content(content)?.exec().await?;
             }
             Self::SendLog {
@@ -65,7 +66,7 @@ impl MessageAction {
                             .build(),
                         )
                         .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
-                        .field(EmbedFieldBuilder::new("Context", context).build())
+                        .field(EmbedFieldBuilder::new("Context", *context).build())
                         .description(content)
                         .build()
                         .unwrap()])
@@ -76,6 +77,14 @@ impl MessageAction {
         };
 
         Ok(())
+    }
+
+    pub(crate) fn requires_armed(&self) -> bool {
+        match self {
+            MessageAction::Delete { .. } => true,
+            MessageAction::SendMessage { requires_armed, .. } => *requires_armed,
+            _ => false,
+        }
     }
 }
 

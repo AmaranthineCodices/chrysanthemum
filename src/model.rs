@@ -25,3 +25,38 @@ pub(crate) struct ReactionInfo<'a> {
     pub(crate) channel_id: ChannelId,
     pub(crate) reaction: Reaction,
 }
+
+#[cfg(test)]
+pub(crate) mod test {
+    use twilight_model::{id::{MessageId, UserId, ChannelId}, datetime::Timestamp};
+
+    use super::MessageInfo;
+
+    // const Option::unwrap is not stabilized yet.
+    // Use unsafe to skip the check for 0.
+    pub(crate) const MESSAGE_ID: MessageId = unsafe { MessageId::new_unchecked(1) };
+    pub(crate) const CHANNEL_ID: ChannelId = unsafe { ChannelId::new_unchecked(2) };
+    pub(crate) const USER_ID: UserId = unsafe { UserId::new_unchecked(3) };
+    pub(crate) const GOOD_CONTENT: &'static str = "this is an okay message https://discord.gg/ discord.gg/roblox";
+    pub(crate) const BAD_CONTENT: &'static str = "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
+
+    pub(crate) fn message(content: &'static str) -> MessageInfo<'static> {
+        MessageInfo {
+            author_is_bot: false,
+            id: MESSAGE_ID,
+            author_id: USER_ID,
+            channel_id: CHANNEL_ID,
+            author_roles: &[],
+            content: content,
+            timestamp: Timestamp::from_secs(100).unwrap(),
+            attachments: &[],
+            stickers: &[],
+        }
+    }
+
+    pub(crate) fn message_at_time(content: &'static str, timestamp: u64) -> MessageInfo<'static> {
+        let mut info = message(content);
+        info.timestamp = Timestamp::from_secs(timestamp).unwrap();
+        info
+    }
+}

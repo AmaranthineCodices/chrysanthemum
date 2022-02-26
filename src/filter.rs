@@ -529,35 +529,6 @@ pub(crate) async fn check_spam_record(
 
 #[cfg(test)]
 mod test {
-    use std::num::NonZeroU64;
-
-    use twilight_model::{id::{MessageId, UserId, ChannelId}, datetime::Timestamp};
-
-    use crate::model::MessageInfo;
-
-    const GOOD_CONTENT: &'static str = "this is an okay message https://discord.gg/ discord.gg/roblox";
-    const BAD_CONTENT: &'static str = "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
-
-    fn message(content: &'static str) -> MessageInfo<'static> {
-        MessageInfo {
-            author_is_bot: false,
-            id: MessageId(NonZeroU64::new(1).unwrap()),
-            author_id: UserId(NonZeroU64::new(1).unwrap()),
-            channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
-            author_roles: &[],
-            content: content,
-            timestamp: Timestamp::from_secs(100).unwrap(),
-            attachments: &[],
-            stickers: &[],
-        }
-    }
-
-    fn message_at_time(content: &'static str, timestamp: u64) -> MessageInfo<'static> {
-        let mut info = message(content);
-        info.timestamp = Timestamp::from_secs(timestamp).unwrap();
-        info
-    }
-
     mod scoping {
         use pretty_assertions::assert_eq;
         use twilight_model::id::{RoleId, ChannelId};
@@ -637,7 +608,7 @@ mod test {
         use twilight_model::{id::{AttachmentId}, channel::{Attachment, message::sticker::{MessageSticker, StickerId}}};
 
         use crate::config::{MessageFilterRule, FilterMode};
-        use super::{message, GOOD_CONTENT, BAD_CONTENT};
+        use crate::model::test::{message, GOOD_CONTENT, BAD_CONTENT};
 
         #[test]
         fn filter_words() {
@@ -971,7 +942,7 @@ mod test {
 
         use crate::{model::MessageInfo, filter::{SpamRecord, exceeds_spam_thresholds, init_globals}, config::SpamFilter};
 
-        use super::{message_at_time, GOOD_CONTENT};
+        use crate::model::test::{message_at_time, GOOD_CONTENT};
 
         #[test]
         fn spam_record_creation() {

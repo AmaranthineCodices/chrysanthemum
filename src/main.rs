@@ -1,10 +1,10 @@
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use action::MessageAction;
 use chrono::{DateTime, Utc};
 use filter::SpamHistory;
 use influxdb::{InfluxDbWriteable, WriteQuery};
@@ -24,8 +24,8 @@ use twilight_http::Client as HttpClient;
 use twilight_mention::Mention;
 use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::{Message, Reaction, ReactionType};
-use twilight_model::gateway::Intents;
 use twilight_model::gateway::payload::incoming::MessageUpdate;
+use twilight_model::gateway::Intents;
 use twilight_model::id::{CommandId, GuildId};
 
 use color_eyre::eyre::Result;
@@ -38,6 +38,7 @@ mod command;
 mod config;
 mod confusable;
 mod filter;
+mod message;
 mod model;
 
 const DEFAULT_RELOAD_INTERVAL: u64 = 5 * 60;
@@ -382,11 +383,11 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
 }
 
 #[tracing::instrument("Filtering message")]
-async fn filter_message_info(
+async fn filter_message_info<'msg>(
     guild_id: GuildId,
-    message_info: &MessageInfo<'_>,
-    state: &State,
-    context: &str,
+    message_info: &'msg MessageInfo<'_>,
+    state: &'msg State,
+    context: &'static str,
 ) -> Result<()> {
     let guild_cfgs = state.guild_cfgs.read().await;
     if let Some(guild_config) = guild_cfgs.get(&guild_id) {
@@ -398,218 +399,46 @@ async fn filter_message_info(
         tracing::trace!(?message_info, "Filtering message");
 
         if let Some(message_filters) = &guild_config.messages {
-            let (mut filter_result, mut actions, mut filter_name) = (None, None, None);
+            let now = (Utc::now().timestamp_millis() as u64) * 1000;
 
-            for filter in message_filters {
-                let scoping = filter
-                    .scoping
-                    .as_ref()
-                    .or(guild_config.default_scoping.as_ref());
-                if let Some(scoping) = scoping {
-                    if !scoping.is_included(message_info.channel_id, message_info.author_roles) {
+            let result = crate::message::filter_and_spam_check_message(
+                guild_config.spam.as_ref(),
+                &message_filters[..],
+                guild_config.default_scoping.as_ref(),
+                guild_config.default_actions.as_deref(),
+                state.spam_history.clone(),
+                message_info,
+                context,
+                now,
+            )
+            .await;
+
+            if let Err(failure) = result {
+                tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, ?failure, "Message filtered");
+
+                let armed = state.armed.load(Ordering::Relaxed);
+                let mut deleted = false;
+
+                for action in failure.actions {
+                    match action {
+                        // We only want to execute Delete actions once per message,
+                        // since we'll get a 404 on subsequent requests.
+                        MessageAction::Delete { .. } => {
+                            if deleted {
+                                continue;
+                            }
+
+                            deleted = true;
+                        },
+                        _ => {},
+                    }
+
+                    if action.requires_armed() && !armed {
                         continue;
                     }
-                }
 
-                tracing::trace!(?filter.rules, "Filtering message against a filter");
-
-                let test_result = filter.filter_message(&message_info);
-                if test_result.is_err() {
-                    filter_result = Some(test_result);
-                    actions = filter.actions.as_ref();
-                    filter_name = Some(filter.name.as_str());
-                    break;
-                }
-            }
-
-            if filter_result.is_none() {
-                if let Some(spam_config) = &guild_config.spam {
-                    let scoping = spam_config
-                        .scoping
-                        .as_ref()
-                        .or(guild_config.default_scoping.as_ref());
-                    let is_in_scope = scoping
-                        .map(|s| s.is_included(message_info.channel_id, message_info.author_roles))
-                        .unwrap_or(false);
-
-                    if is_in_scope {
-                        let now = (Utc::now().timestamp_millis() as u64) * 1000;
-                        filter_result = Some(
-                            filter::check_spam_record(
-                                &message_info,
-                                &spam_config,
-                                state.spam_history.clone(),
-                                now,
-                            )
-                            .await,
-                        );
-                        actions = spam_config.actions.as_ref();
-                        filter_name = Some("Spam")
-                    }
-                }
-            }
-
-            if let Some(Err(reason)) = filter_result {
-                if let Some(actions) = actions {
-                    let mut deleted = false;
-
-                    for action in actions {
-                        match action {
-                            MessageFilterAction::Delete => {
-                                if deleted {
-                                    continue;
-                                }
-
-                                tracing::debug!(
-                                    %message_info.id,
-                                    %message_info.channel_id,
-                                    %message_info.author_id,
-                                    %reason,
-                                    "Deleting message");
-
-                                if !state.armed.load(Ordering::Relaxed) {
-                                    tracing::debug!(%message_info.id, %message_info.channel_id, %message_info.author_id, %reason, "Aborting: Chrysanthemum has not been armed.");
-                                    continue;
-                                }
-
-                                let result = state
-                                    .http
-                                    .delete_message(message_info.channel_id, message_info.id)
-                                    .exec()
-                                    .await;
-
-                                if let Err(err) = result {
-                                    tracing::error!(
-                                        %message_info.id,
-                                        %message_info.channel_id,
-                                        %message_info.author_id,
-                                        ?err,
-                                        "Error deleting message");
-                                }
-
-                                deleted = true;
-                            }
-                            MessageFilterAction::SendLog { channel_id } => {
-                                tracing::debug!(
-                                    %message_info.id,
-                                    %message_info.channel_id,
-                                    %message_info.author_id,
-                                    %channel_id,
-                                    "Sending message filtration log message"
-                                );
-
-                                let description = if message_info.content.len() > 0 {
-                                    format!("```{}```", message_info.content)
-                                } else {
-                                    "<no content>".to_string()
-                                };
-
-                                let result = state
-                                    .http
-                                    .create_message(*channel_id)
-                                    .embeds(&[EmbedBuilder::new()
-                                        .title("Message filtered")
-                                        .field(EmbedFieldBuilder::new(
-                                            "Filter",
-                                            filter_name.unwrap(),
-                                        ))
-                                        .field(
-                                            EmbedFieldBuilder::new(
-                                                "Author",
-                                                format!(
-                                                    "<@{}>",
-                                                    message_info.author_id.to_string()
-                                                ),
-                                            )
-                                            .build(),
-                                        )
-                                        .field(
-                                            EmbedFieldBuilder::new(
-                                                "Channel",
-                                                message_info.channel_id.mention().to_string(),
-                                            )
-                                            .build(),
-                                        )
-                                        .field(
-                                            EmbedFieldBuilder::new("Reason", reason.clone())
-                                                .build(),
-                                        )
-                                        .field(EmbedFieldBuilder::new("Context", context).build())
-                                        .description(description)
-                                        .build()
-                                        .unwrap()])
-                                    .unwrap()
-                                    .exec()
-                                    .await;
-
-                                if let Err(err) = result {
-                                    tracing::error!(
-                                        %message_info.id,
-                                        %message_info.channel_id,
-                                        %message_info.author_id,
-                                        %channel_id,
-                                        ?err,
-                                        "Error sending log message"
-                                    );
-                                }
-                            }
-                            MessageFilterAction::SendMessage {
-                                channel_id,
-                                content,
-                                requires_armed,
-                            } => {
-                                if *requires_armed && !state.armed.load(Ordering::Relaxed) {
-                                    continue;
-                                }
-
-                                let formatted_content = content
-                                    .replace("$USER_ID", &message_info.author_id.to_string());
-                                let formatted_content =
-                                    formatted_content.replace("$FILTER_REASON", &reason);
-
-                                const MAX_CHARS: usize = 2_000;
-                                const MESSAGE_PREVIEW: &'static str = "$MESSAGE_PREVIEW";
-                                const ELLIPSIS: &'static str = "…";
-
-                                let formatted_content = if formatted_content.contains(MESSAGE_PREVIEW) {
-                                    let available_length = MAX_CHARS - formatted_content.len() - MESSAGE_PREVIEW.len();
-                                    let truncated_content = if message_info.content.len() > available_length {
-                                        let mut last_index = available_length - ELLIPSIS.len();
-                                        while !message_info.content.is_char_boundary(last_index) {
-                                            last_index -= 1;
-                                        }
-
-                                        Cow::Owned(format!("{}{}", &message_info.content[0..last_index], ELLIPSIS))
-                                    } else {
-                                        Cow::Borrowed(message_info.content)
-                                    };
-
-                                    debug_assert!(truncated_content.len() <= available_length);
-                                    formatted_content.replacen(MESSAGE_PREVIEW, &truncated_content, 1)
-                                } else {
-                                    formatted_content
-                                };
-
-                                let result = state
-                                    .http
-                                    .create_message(*channel_id)
-                                    .content(&formatted_content)
-                                    .unwrap()
-                                    .exec()
-                                    .await;
-                                if let Err(err) = result {
-                                    tracing::error!(
-                                        %message_info.id,
-                                        %message_info.channel_id,
-                                        %message_info.author_id,
-                                        %channel_id,
-                                        %formatted_content,
-                                        ?err,
-                                        "Error sending message"
-                                    );
-                                }
-                            }
-                        }
+                    if let Err(action_err) = action.execute(&state.http).await {
+                        tracing::error!(?action, ?action_err, "Error executing action");
                     }
                 }
 
@@ -618,7 +447,7 @@ async fn filter_message_info(
                     guild: guild_id.to_string(),
                     channel: message_info.channel_id.to_string(),
                 };
-
+    
                 send_influx_point(&state, &report.into_query(context)).await?;
             }
         }
@@ -642,7 +471,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
                 tracing::error!(?message.id, "No `member` field attached to message");
             }
 
-            return Ok(())
+            return Ok(());
         }
     };
 
@@ -873,16 +702,28 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         .await?
         .model()
         .await?;
-    
+
     let cached_member = state.cache.member(guild_id, http_message.author.id);
     // Exists purely as a lifetime extension.
     let http_member_roles;
     let author_roles = match cached_member.as_ref() {
         Some(member) => member.roles(),
         None => {
-            http_member_roles = Some(state.http.guild_member(guild_id, http_message.author.id).exec().await?.model().await?.roles.iter().map(|r| *r).collect::<Vec<_>>());
+            http_member_roles = Some(
+                state
+                    .http
+                    .guild_member(guild_id, http_message.author.id)
+                    .exec()
+                    .await?
+                    .model()
+                    .await?
+                    .roles
+                    .iter()
+                    .map(|r| *r)
+                    .collect::<Vec<_>>(),
+            );
             http_member_roles.as_ref().map(|r| &r[..]).unwrap()
-        },
+        }
     };
 
     let message_info = MessageInfo {
