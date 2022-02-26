@@ -9,7 +9,7 @@ use crate::{
     model::MessageInfo,
 };
 
-const SPAM_FILTER_NAME: &'static str = "spam";
+const SPAM_FILTER_NAME: &'static str = "Spam";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MessageFilterFailure {
