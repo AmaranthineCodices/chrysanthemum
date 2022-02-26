@@ -37,3 +37,6 @@ twilight-util = { version = "0.7.0", features = ["builder"] }
 
 [profile.dev.package.backtrace]
 opt-level = 3
+
+[dev-dependencies]
+pretty_assertions = "1"
