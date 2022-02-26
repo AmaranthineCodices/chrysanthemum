@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use action::MessageAction;
+use action::{MessageAction, ReactionAction};
 use chrono::{DateTime, Utc};
 use filter::SpamHistory;
 use influxdb::{InfluxDbWriteable, WriteQuery};
@@ -19,11 +19,10 @@ use twilight_cache_inmemory::{InMemoryCache, ResourceType};
 use twilight_embed_builder::{EmbedBuilder, EmbedFieldBuilder};
 use twilight_gateway::Event;
 use twilight_gateway::Shard;
-use twilight_http::request::prelude::RequestReactionType;
 use twilight_http::Client as HttpClient;
 use twilight_mention::Mention;
 use twilight_model::application::interaction::Interaction;
-use twilight_model::channel::{Message, Reaction, ReactionType};
+use twilight_model::channel::{Message, Reaction};
 use twilight_model::gateway::payload::incoming::MessageUpdate;
 use twilight_model::gateway::Intents;
 use twilight_model::id::{CommandId, GuildId};
@@ -31,7 +30,7 @@ use twilight_model::id::{CommandId, GuildId};
 use color_eyre::eyre::Result;
 
 use config::*;
-use model::MessageInfo;
+use model::{MessageInfo, ReactionInfo};
 
 mod action;
 mod command;
@@ -40,6 +39,7 @@ mod confusable;
 mod filter;
 mod message;
 mod model;
+mod reaction;
 
 const DEFAULT_RELOAD_INTERVAL: u64 = 5 * 60;
 
@@ -429,8 +429,8 @@ async fn filter_message_info<'msg>(
                             }
 
                             deleted = true;
-                        },
-                        _ => {},
+                        }
+                        _ => {}
                     }
 
                     if action.requires_armed() && !armed {
@@ -447,7 +447,7 @@ async fn filter_message_info<'msg>(
                     guild: guild_id.to_string(),
                     channel: message_info.channel_id.to_string(),
                 };
-    
+
                 send_influx_point(&state, &report.into_query(context)).await?;
             }
         }
@@ -514,173 +514,52 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
         }
 
         if let Some(reaction_filters) = &guild_config.reactions {
-            for filter in reaction_filters {
-                let scoping = filter
-                    .scoping
-                    .as_ref()
-                    .or(guild_config.default_scoping.as_ref());
-                if let Some(scoping) = scoping {
-                    if !scoping.is_included(rxn.channel_id, &member.roles) {
+            let reaction_info = ReactionInfo {
+                author_is_bot: member.user.bot,
+                author_roles: &member.roles,
+                author_id: rxn.user_id,
+                channel_id: rxn.channel_id,
+                message_id: rxn.message_id,
+                reaction: rxn.emoji.clone(),
+            };
+
+            let filter_result = crate::reaction::filter_reaction(
+                &reaction_filters,
+                guild_config.default_scoping.as_ref(),
+                guild_config.default_actions.as_deref(),
+                &reaction_info,
+            );
+
+            if let Err(failure) = filter_result {
+                let armed = state.armed.load(Ordering::Relaxed);
+                let mut deleted = false;
+
+                for action in failure.actions {
+                    if matches!(action, ReactionAction::Delete { .. }) {
+                        if deleted {
+                            continue;
+                        }
+
+                        deleted = true;
+                    }
+
+                    if action.requires_armed() && !armed {
                         continue;
                     }
-                }
 
-                let filter_result = filter.filter_reaction(&rxn.emoji);
-
-                if let Err(reason) = filter_result {
-                    let actions = filter
-                        .actions
-                        .as_ref()
-                        .or(guild_config.default_actions.as_ref());
-                    if let Some(actions) = actions {
-                        let request_emoji = match &rxn.emoji {
-                            twilight_model::channel::ReactionType::Custom { id, name, .. } => {
-                                RequestReactionType::Custom {
-                                    id: *id,
-                                    name: name.as_deref(),
-                                }
-                            }
-                            twilight_model::channel::ReactionType::Unicode { name } => {
-                                RequestReactionType::Unicode { name: &name }
-                            }
-                        };
-
-                        for action in actions {
-                            match action {
-                                MessageFilterAction::Delete => {
-                                    tracing::debug!(
-                                        reaction.channel = %rxn.channel_id,
-                                        reaction.message = %rxn.message_id,
-                                        reaction.emoji = ?rxn.emoji,
-                                        reaction.author = %member.user.id,
-                                        "Deleting reactions on message");
-
-                                    if !state.armed.load(Ordering::Relaxed) {
-                                        tracing::debug!(
-                                            reaction.channel = %rxn.channel_id,
-                                            reaction.message = %rxn.message_id,
-                                            reaction.emoji = ?rxn.emoji,
-                                            reaction.author = %member.user.id,
-                                            "Aborting: Chrysanthemum has not been armed.");
-
-                                        continue;
-                                    }
-
-                                    let result = state
-                                        .http
-                                        .delete_all_reaction(
-                                            rxn.channel_id,
-                                            rxn.message_id,
-                                            &request_emoji,
-                                        )
-                                        .exec()
-                                        .await;
-                                    if let Err(err) = result {
-                                        tracing::error!(
-                                            reaction.channel = %rxn.channel_id,
-                                            reaction.message = %rxn.message_id,
-                                            reaction.emoji = ?rxn.emoji,
-                                            reaction.author = %member.user.id,
-                                            error = ?err,
-                                            "Error deleting reactions on message"
-                                        );
-                                    }
-                                }
-                                MessageFilterAction::SendLog { channel_id } => {
-                                    let rxn_string = match &rxn.emoji {
-                                        ReactionType::Custom { id, .. } => id.mention().to_string(),
-                                        ReactionType::Unicode { name } => name.clone(),
-                                    };
-
-                                    tracing::debug!(
-                                        reaction.channel = %rxn.channel_id,
-                                        reaction.message = %rxn.message_id,
-                                        reaction.emoji = ?rxn.emoji,
-                                        reaction.author = %member.user.id,
-                                        target_channel = %channel_id,
-                                        "Sending emoji filtration message");
-
-                                    let result = state
-                                        .http
-                                        .create_message(*channel_id)
-                                        .embeds(&[EmbedBuilder::new()
-                                            .title("Reaction filtered")
-                                            .field(EmbedFieldBuilder::new("Filter", &filter.name))
-                                            .field(EmbedFieldBuilder::new(
-                                                "Author",
-                                                format!("<@{}>", member.user.id.to_string()),
-                                            ))
-                                            .field(EmbedFieldBuilder::new(
-                                                "Channel",
-                                                rxn.channel_id.mention().to_string(),
-                                            ))
-                                            .field(EmbedFieldBuilder::new("Reason", reason.clone()))
-                                            .field(EmbedFieldBuilder::new("Reaction", rxn_string))
-                                            .build()
-                                            .unwrap()])
-                                        .unwrap()
-                                        .exec()
-                                        .await;
-
-                                    if let Err(err) = result {
-                                        tracing::error!(
-                                            reaction.channel = %rxn.channel_id,
-                                            reaction.message = %rxn.message_id,
-                                            reaction.emoji = ?rxn.emoji,
-                                            reaction.author = %member.user.id,
-                                            target_channel = %channel_id,
-                                            error = ?err,
-                                            "Error sending message to channel"
-                                        );
-                                    }
-                                }
-                                MessageFilterAction::SendMessage {
-                                    channel_id,
-                                    content,
-                                    requires_armed,
-                                } => {
-                                    if *requires_armed && !state.armed.load(Ordering::Relaxed) {
-                                        continue;
-                                    }
-
-                                    let formatted_content =
-                                        content.replace("$USER_ID", &member.user.id.to_string());
-                                    let formatted_content =
-                                        formatted_content.replace("$FILTER_REASON", &reason);
-
-                                    let result = state
-                                        .http
-                                        .create_message(*channel_id)
-                                        .content(&formatted_content)
-                                        .unwrap()
-                                        .exec()
-                                        .await;
-                                    if let Err(err) = result {
-                                        tracing::error!(
-                                            reaction.channel = %rxn.channel_id,
-                                            reaction.message = %rxn.message_id,
-                                            reaction.emoji = ?rxn.emoji,
-                                            reaction.author = %member.user.id,
-                                            %channel_id,
-                                            %formatted_content,
-                                            ?err,
-                                            "Error sending message"
-                                        );
-                                    }
-                                }
-                            }
-
-                            let report = ReactionFilterReport {
-                                time: Utc::now(),
-                                guild: guild_id.to_string(),
-                                channel: rxn.channel_id.to_string(),
-                            };
-
-                            send_influx_point(&state, &report.into_query("reaction_filter"))
-                                .await?;
-                        }
+                    if let Err(action_err) = action.execute(&state.http).await {
+                        tracing::error!(?action_err, ?action, "Error executing reaction action");
                     }
                 }
+
+                let report = ReactionFilterReport {
+                    time: Utc::now(),
+                    guild: guild_id.to_string(),
+                    channel: rxn.channel_id.to_string(),
+                };
+
+                send_influx_point(&state, &report.into_query("reaction_filter"))
+                    .await?;
             }
         }
     }

@@ -1,5 +1,5 @@
 use twilight_model::{
-    channel::{message::sticker::MessageSticker, Attachment, Reaction},
+    channel::{message::sticker::MessageSticker, Attachment, ReactionType},
     datetime::Timestamp,
     id::{ChannelId, MessageId, RoleId, UserId},
 };
@@ -21,16 +21,17 @@ pub(crate) struct MessageInfo<'a> {
 pub(crate) struct ReactionInfo<'a> {
     pub(crate) author_is_bot: bool,
     pub(crate) author_roles: &'a [RoleId],
+    pub(crate) author_id: UserId,
     pub(crate) message_id: MessageId,
     pub(crate) channel_id: ChannelId,
-    pub(crate) reaction: Reaction,
+    pub(crate) reaction: ReactionType,
 }
 
 #[cfg(test)]
 pub(crate) mod test {
-    use twilight_model::{id::{MessageId, UserId, ChannelId}, datetime::Timestamp};
+    use twilight_model::{id::{MessageId, UserId, ChannelId, EmojiId}, datetime::Timestamp, channel::ReactionType};
 
-    use super::MessageInfo;
+    use super::{MessageInfo, ReactionInfo};
 
     // const Option::unwrap is not stabilized yet.
     // Use unsafe to skip the check for 0.
@@ -58,5 +59,18 @@ pub(crate) mod test {
         let mut info = message(content);
         info.timestamp = Timestamp::from_secs(timestamp).unwrap();
         info
+    }
+
+    pub(crate) fn default_reaction(rxn: &'static str) -> ReactionInfo<'static> {
+        ReactionInfo {
+            author_is_bot: false,
+            author_roles: &[],
+            author_id: USER_ID,
+            channel_id: CHANNEL_ID,
+            message_id: MESSAGE_ID,
+            reaction: ReactionType::Unicode {
+                name: rxn.to_string(),
+            }
+        }
     }
 }

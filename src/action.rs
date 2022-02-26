@@ -88,6 +88,7 @@ impl MessageAction {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ReactionAction {
     Delete {
         message_id: MessageId,
@@ -97,6 +98,7 @@ pub(crate) enum ReactionAction {
     SendMessage {
         to: ChannelId,
         content: String,
+        requires_armed: bool,
     },
     SendLog {
         to: ChannelId,
@@ -129,7 +131,7 @@ impl ReactionAction {
                     .exec()
                     .await?;
             }
-            Self::SendMessage { to, content } => {
+            Self::SendMessage { to, content, .. } => {
                 http.create_message(*to).content(content)?.exec().await?;
             }
             Self::SendLog {
@@ -179,5 +181,13 @@ impl ReactionAction {
         };
 
         Ok(())
+    }
+
+    pub(crate) fn requires_armed(&self) -> bool {
+        match self {
+            &ReactionAction::Delete { .. } => true,
+            &ReactionAction::SendMessage { requires_armed, .. } => requires_armed,
+            _ => false,
+        }
     }
 }
