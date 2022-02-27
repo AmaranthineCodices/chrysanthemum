@@ -183,7 +183,16 @@ pub(crate) async fn filter_and_spam_check_message<'msg>(
 
     if let Ok(()) = result {
         if let Some(spam_config) = spam_config {
-            spam_check_message(spam_config, default_scoping, default_actions, spam_history, message, context, now).await
+            spam_check_message(
+                spam_config,
+                default_scoping,
+                default_actions,
+                spam_history,
+                message,
+                context,
+                now,
+            )
+            .await
         } else {
             Ok(())
         }
@@ -194,7 +203,7 @@ pub(crate) async fn filter_and_spam_check_message<'msg>(
 
 #[cfg(test)]
 mod test {
-    use std::{sync::Arc, collections::HashMap};
+    use std::{collections::HashMap, sync::Arc};
 
     use pretty_assertions::assert_eq;
     use regex::Regex;
@@ -248,7 +257,7 @@ mod test {
                         content: "3
 contains word `bad`
 asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver"
-                        .to_owned(),
+                            .to_owned(),
                         requires_armed: false,
                     },
                     MessageAction::SendLog {
@@ -539,29 +548,47 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
         let spam_config = SpamFilter {
             duplicates: Some(1),
-            actions: Some(vec![
-                MessageFilterAction::Delete,
-            ]),
+            actions: Some(vec![MessageFilterAction::Delete]),
             ..Default::default()
         };
 
         let spam_history = Arc::new(RwLock::new(HashMap::new()));
         let message = crate::model::test::message_at_time(crate::model::test::BAD_CONTENT, 10);
-        let result = super::spam_check_message(&spam_config, None, None, spam_history.clone(), &message, "message create", 20).await;
+        let result = super::spam_check_message(
+            &spam_config,
+            None,
+            None,
+            spam_history.clone(),
+            &message,
+            "message create",
+            20,
+        )
+        .await;
         assert_eq!(result, Ok(()));
 
-        let second_message = crate::model::test::message_at_time(crate::model::test::BAD_CONTENT, 30);
-        let result = super::spam_check_message(&spam_config, None, None, spam_history.clone(), &second_message, "message create", 40).await;
-        assert_eq!(result, Err(MessageFilterFailure {
-            filter_name: super::SPAM_FILTER_NAME.to_string(),
-            context: "message create",
-            actions: vec![
-                MessageAction::Delete {
+        let second_message =
+            crate::model::test::message_at_time(crate::model::test::BAD_CONTENT, 30);
+        let result = super::spam_check_message(
+            &spam_config,
+            None,
+            None,
+            spam_history.clone(),
+            &second_message,
+            "message create",
+            40,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(MessageFilterFailure {
+                filter_name: super::SPAM_FILTER_NAME.to_string(),
+                context: "message create",
+                actions: vec![MessageAction::Delete {
                     channel_id: crate::model::test::CHANNEL_ID,
                     message_id: crate::model::test::MESSAGE_ID,
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[tokio::test]
@@ -570,22 +597,27 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
         let spam_config = SpamFilter {
             spoilers: Some(1),
-            actions: Some(vec![
-                MessageFilterAction::Delete,
-            ]),
+            actions: Some(vec![MessageFilterAction::Delete]),
             ..Default::default()
         };
 
         let default_scoping = Scoping {
-            exclude_channels: Some(vec![
-                crate::model::test::CHANNEL_ID,
-            ]),
+            exclude_channels: Some(vec![crate::model::test::CHANNEL_ID]),
             ..Default::default()
         };
 
         let spam_history = Arc::new(RwLock::new(HashMap::new()));
         let message = crate::model::test::message_at_time("|| || || ||", 10);
-        let result = super::spam_check_message(&spam_config, Some(&default_scoping), None, spam_history.clone(), &message, "message create", 20).await;
+        let result = super::spam_check_message(
+            &spam_config,
+            Some(&default_scoping),
+            None,
+            spam_history.clone(),
+            &message,
+            "message create",
+            20,
+        )
+        .await;
         assert_eq!(result, Ok(()));
     }
 
@@ -595,38 +627,42 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
         let spam_config = SpamFilter {
             spoilers: Some(1),
-            actions: Some(vec![
-                MessageFilterAction::Delete,
-            ]),
+            actions: Some(vec![MessageFilterAction::Delete]),
             scoping: Some(Scoping {
-                include_channels: Some(vec![
-                    crate::model::test::CHANNEL_ID,
-                ]),
+                include_channels: Some(vec![crate::model::test::CHANNEL_ID]),
                 ..Default::default()
             }),
             ..Default::default()
         };
 
         let default_scoping = Scoping {
-            exclude_channels: Some(vec![
-                crate::model::test::CHANNEL_ID,
-            ]),
+            exclude_channels: Some(vec![crate::model::test::CHANNEL_ID]),
             ..Default::default()
         };
 
         let spam_history = Arc::new(RwLock::new(HashMap::new()));
         let message = crate::model::test::message_at_time("|| || || ||", 10);
-        let result = super::spam_check_message(&spam_config, Some(&default_scoping), None, spam_history.clone(), &message, "message create", 20).await;
-        assert_eq!(result, Err(MessageFilterFailure {
-            filter_name: super::SPAM_FILTER_NAME.to_string(),
-            context: "message create",
-            actions: vec![
-                MessageAction::Delete {
+        let result = super::spam_check_message(
+            &spam_config,
+            Some(&default_scoping),
+            None,
+            spam_history.clone(),
+            &message,
+            "message create",
+            20,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(MessageFilterFailure {
+                filter_name: super::SPAM_FILTER_NAME.to_string(),
+                context: "message create",
+                actions: vec![MessageAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[tokio::test]
@@ -640,23 +676,31 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
             ..Default::default()
         };
 
-        let default_actions = vec![
-            MessageFilterAction::Delete,
-        ];
+        let default_actions = vec![MessageFilterAction::Delete];
 
         let spam_history = Arc::new(RwLock::new(HashMap::new()));
         let message = crate::model::test::message_at_time("|| || || ||", 10);
-        let result = super::spam_check_message(&spam_config, None, Some(&default_actions), spam_history.clone(), &message, "message create", 20).await;
-        assert_eq!(result, Err(MessageFilterFailure {
-            filter_name: super::SPAM_FILTER_NAME.to_string(),
-            context: "message create",
-            actions: vec![
-                MessageAction::Delete {
+        let result = super::spam_check_message(
+            &spam_config,
+            None,
+            Some(&default_actions),
+            spam_history.clone(),
+            &message,
+            "message create",
+            20,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(MessageFilterFailure {
+                filter_name: super::SPAM_FILTER_NAME.to_string(),
+                context: "message create",
+                actions: vec![MessageAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[tokio::test]
@@ -665,9 +709,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
         let spam_config = SpamFilter {
             spoilers: Some(1),
-            actions: Some(vec![
-                MessageFilterAction::Delete,
-            ]),
+            actions: Some(vec![MessageFilterAction::Delete]),
             scoping: None,
             ..Default::default()
         };
@@ -676,17 +718,27 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
         let spam_history = Arc::new(RwLock::new(HashMap::new()));
         let message = crate::model::test::message_at_time("|| || || ||", 10);
-        let result = super::spam_check_message(&spam_config, None, Some(&default_actions), spam_history.clone(), &message, "message create", 20).await;
-        assert_eq!(result, Err(MessageFilterFailure {
-            filter_name: super::SPAM_FILTER_NAME.to_string(),
-            context: "message create",
-            actions: vec![
-                MessageAction::Delete {
+        let result = super::spam_check_message(
+            &spam_config,
+            None,
+            Some(&default_actions),
+            spam_history.clone(),
+            &message,
+            "message create",
+            20,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(MessageFilterFailure {
+                filter_name: super::SPAM_FILTER_NAME.to_string(),
+                context: "message create",
+                actions: vec![MessageAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[tokio::test]
@@ -704,37 +756,58 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
         let spam_config = SpamFilter {
             duplicates: Some(1),
-            actions: Some(vec![
-                MessageFilterAction::Delete,
-            ]),
+            actions: Some(vec![MessageFilterAction::Delete]),
             ..Default::default()
         };
 
         let spam_history = Arc::new(RwLock::new(HashMap::new()));
         let message = crate::model::test::message_at_time(crate::model::test::BAD_CONTENT, 10);
-        let result = super::filter_and_spam_check_message(Some(&spam_config), &filters, None, None, spam_history.clone(), &message, "message create", 20).await;
-        assert_eq!(result, Err(MessageFilterFailure {
-            filter_name: "first".to_string(),
-            context: "message create",
-            actions: vec![
-                MessageAction::Delete {
+        let result = super::filter_and_spam_check_message(
+            Some(&spam_config),
+            &filters,
+            None,
+            None,
+            spam_history.clone(),
+            &message,
+            "message create",
+            20,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(MessageFilterFailure {
+                filter_name: "first".to_string(),
+                context: "message create",
+                actions: vec![MessageAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
-                }
-            ]
-        }));
+                }]
+            })
+        );
 
-        let second_message = crate::model::test::message_at_time(crate::model::test::BAD_CONTENT, 30);
-        let result = super::filter_and_spam_check_message(Some(&spam_config), &filters, None, None, spam_history.clone(), &second_message, "message create", 40).await;
-        assert_eq!(result, Err(MessageFilterFailure {
-            filter_name: "first".to_string(),
-            context: "message create",
-            actions: vec![
-                MessageAction::Delete {
+        let second_message =
+            crate::model::test::message_at_time(crate::model::test::BAD_CONTENT, 30);
+        let result = super::filter_and_spam_check_message(
+            Some(&spam_config),
+            &filters,
+            None,
+            None,
+            spam_history.clone(),
+            &second_message,
+            "message create",
+            40,
+        )
+        .await;
+        assert_eq!(
+            result,
+            Err(MessageFilterFailure {
+                filter_name: "first".to_string(),
+                context: "message create",
+                actions: vec![MessageAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 }

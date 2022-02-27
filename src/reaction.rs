@@ -86,84 +86,79 @@ mod test {
     use pretty_assertions::assert_eq;
     use twilight_model::id::ChannelId;
 
-    use crate::{config::{ReactionFilter, FilterMode, MessageFilterAction, ReactionFilterRule, Scoping}, reaction::ReactionFilterFailure, action::ReactionAction};
+    use crate::{
+        action::ReactionAction,
+        config::{FilterMode, MessageFilterAction, ReactionFilter, ReactionFilterRule, Scoping},
+        reaction::ReactionFilterFailure,
+    };
 
     #[test]
     fn filter_basic() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: None,
-                actions: Some(vec![
-                    MessageFilterAction::Delete,
-                    MessageFilterAction::SendLog {
-                        channel_id: ChannelId::new(3).unwrap(),
-                    },
-                    MessageFilterAction::SendMessage {
-                        channel_id: ChannelId::new(3).unwrap(),
-                        content: "$USER_ID $FILTER_REASON".to_string(),
-                        requires_armed: false,
-                    },
-                ])
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: None,
+            actions: Some(vec![
+                MessageFilterAction::Delete,
+                MessageFilterAction::SendLog {
+                    channel_id: ChannelId::new(3).unwrap(),
+                },
+                MessageFilterAction::SendMessage {
+                    channel_id: ChannelId::new(3).unwrap(),
+                    content: "$USER_ID $FILTER_REASON".to_string(),
+                    requires_armed: false,
+                },
+            ]),
+        }];
 
         let rxn = crate::model::test::default_reaction("🍆");
         let result = super::filter_reaction(&filters, None, None, &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "first".to_string(),
-            actions: vec![
-                ReactionAction::Delete {
-                    message_id: crate::model::test::MESSAGE_ID,
-                    channel_id: crate::model::test::CHANNEL_ID,
-                    reaction: rxn.reaction.clone(),
-                },
-                ReactionAction::SendLog {
-                    to: ChannelId::new(3).unwrap(),
-                    filter_name: "first".to_string(),
-                    message: crate::model::test::MESSAGE_ID,
-                    channel: crate::model::test::CHANNEL_ID,
-                    filter_reason: "reacted with denied emoji 🍆".to_string(),
-                    author: crate::model::test::USER_ID,
-                    reaction: rxn.reaction.clone(),
-                },
-                ReactionAction::SendMessage {
-                    to: ChannelId::new(3).unwrap(),
-                    content: "3 reacted with denied emoji 🍆".to_string(),
-                    requires_armed: false,
-                },
-            ]
-        }));
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "first".to_string(),
+                actions: vec![
+                    ReactionAction::Delete {
+                        message_id: crate::model::test::MESSAGE_ID,
+                        channel_id: crate::model::test::CHANNEL_ID,
+                        reaction: rxn.reaction.clone(),
+                    },
+                    ReactionAction::SendLog {
+                        to: ChannelId::new(3).unwrap(),
+                        filter_name: "first".to_string(),
+                        message: crate::model::test::MESSAGE_ID,
+                        channel: crate::model::test::CHANNEL_ID,
+                        filter_reason: "reacted with denied emoji 🍆".to_string(),
+                        author: crate::model::test::USER_ID,
+                        reaction: rxn.reaction.clone(),
+                    },
+                    ReactionAction::SendMessage {
+                        to: ChannelId::new(3).unwrap(),
+                        content: "3 reacted with denied emoji 🍆".to_string(),
+                        requires_armed: false,
+                    },
+                ]
+            })
+        );
     }
 
     #[test]
     fn use_default_scoping_if_no_scoping() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: None,
-                actions: Some(vec![
-                    MessageFilterAction::Delete,
-                ])
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: None,
+            actions: Some(vec![MessageFilterAction::Delete]),
+        }];
 
         let default_scoping = Scoping {
-            exclude_channels: Some(vec![
-                crate::model::test::CHANNEL_ID,
-            ]),
+            exclude_channels: Some(vec![crate::model::test::CHANNEL_ID]),
             ..Default::default()
         };
 
@@ -174,118 +169,97 @@ mod test {
 
     #[test]
     fn scoping_overrides_default_scoping() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: Some(Scoping {
-                    include_channels: Some(vec![
-                        crate::model::test::CHANNEL_ID,
-                    ]),
-                    ..Default::default()
-                }),
-                actions: Some(vec![
-                    MessageFilterAction::Delete,
-                ])
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: Some(Scoping {
+                include_channels: Some(vec![crate::model::test::CHANNEL_ID]),
+                ..Default::default()
+            }),
+            actions: Some(vec![MessageFilterAction::Delete]),
+        }];
 
         let default_scoping = Scoping {
-            exclude_channels: Some(vec![
-                crate::model::test::CHANNEL_ID,
-            ]),
+            exclude_channels: Some(vec![crate::model::test::CHANNEL_ID]),
             ..Default::default()
         };
 
         let rxn = crate::model::test::default_reaction("🍆");
         let result = super::filter_reaction(&filters, Some(&default_scoping), None, &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "first".to_string(),
-            actions: vec![
-                ReactionAction::Delete {
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "first".to_string(),
+                actions: vec![ReactionAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
                     reaction: rxn.reaction.clone(),
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[test]
     fn use_default_actions_if_no_actions() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: None,
-                actions: None,
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: None,
+            actions: None,
+        }];
 
-        let default_actions = vec![
-            MessageFilterAction::Delete,
-        ];
+        let default_actions = vec![MessageFilterAction::Delete];
 
         let rxn = crate::model::test::default_reaction("🍆");
         let result = super::filter_reaction(&filters, None, Some(&default_actions), &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "first".to_string(),
-            actions: vec![
-                ReactionAction::Delete {
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "first".to_string(),
+                actions: vec![ReactionAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
                     reaction: rxn.reaction.clone(),
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[test]
     fn actions_override_default_actions() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: None,
-                actions: Some(vec![
-                    MessageFilterAction::Delete,
-                ]),
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: None,
+            actions: Some(vec![MessageFilterAction::Delete]),
+        }];
 
-        let default_actions = vec![
-            MessageFilterAction::SendLog {
-                channel_id: ChannelId::new(2).unwrap(),
-            },
-        ];
+        let default_actions = vec![MessageFilterAction::SendLog {
+            channel_id: ChannelId::new(2).unwrap(),
+        }];
 
         let rxn = crate::model::test::default_reaction("🍆");
         let result = super::filter_reaction(&filters, None, Some(&default_actions), &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "first".to_string(),
-            actions: vec![
-                ReactionAction::Delete {
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "first".to_string(),
+                actions: vec![ReactionAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
                     reaction: rxn.reaction.clone(),
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[test]
@@ -293,98 +267,87 @@ mod test {
         let filters = vec![
             ReactionFilter {
                 name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
+                rules: vec![ReactionFilterRule::Default {
+                    mode: FilterMode::DenyList,
+                    emoji: vec!["🍆".to_string()],
+                }],
                 scoping: None,
-                actions: Some(vec![
-                    MessageFilterAction::Delete,
-                ]),
+                actions: Some(vec![MessageFilterAction::Delete]),
             },
             ReactionFilter {
                 name: "second".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string(), "💜".to_string()],
-                    }
-                ],
+                rules: vec![ReactionFilterRule::Default {
+                    mode: FilterMode::DenyList,
+                    emoji: vec!["🍆".to_string(), "💜".to_string()],
+                }],
                 scoping: None,
-                actions: Some(vec![
-                    MessageFilterAction::Delete,
-                ]),
+                actions: Some(vec![MessageFilterAction::Delete]),
             },
         ];
 
         let rxn = crate::model::test::default_reaction("🍆");
         let result = super::filter_reaction(&filters, None, None, &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "first".to_string(),
-            actions: vec![
-                ReactionAction::Delete {
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "first".to_string(),
+                actions: vec![ReactionAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
                     reaction: rxn.reaction.clone(),
-                }
-            ]
-        }));
+                }]
+            })
+        );
 
         let rxn = crate::model::test::default_reaction("💜");
         let result = super::filter_reaction(&filters, None, None, &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "second".to_string(),
-            actions: vec![
-                ReactionAction::Delete {
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "second".to_string(),
+                actions: vec![ReactionAction::Delete {
                     message_id: crate::model::test::MESSAGE_ID,
                     channel_id: crate::model::test::CHANNEL_ID,
                     reaction: rxn.reaction.clone(),
-                }
-            ]
-        }));
+                }]
+            })
+        );
     }
 
     #[test]
     fn use_no_actions_if_none_are_specified() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: None,
-                actions: None,
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: None,
+            actions: None,
+        }];
 
         let rxn = crate::model::test::default_reaction("🍆");
         let result = super::filter_reaction(&filters, None, None, &rxn);
-        assert_eq!(result, Err(ReactionFilterFailure {
-            filter_name: "first".to_string(),
-            actions: vec![]
-        }));
+        assert_eq!(
+            result,
+            Err(ReactionFilterFailure {
+                filter_name: "first".to_string(),
+                actions: vec![]
+            })
+        );
     }
 
     #[test]
     fn pass_if_no_filters_filter() {
-        let filters = vec![
-            ReactionFilter {
-                name: "first".to_string(),
-                rules: vec![
-                    ReactionFilterRule::Default {
-                        mode: FilterMode::DenyList,
-                        emoji: vec!["🍆".to_string()],
-                    }
-                ],
-                scoping: None,
-                actions: None,
-            },
-        ];
+        let filters = vec![ReactionFilter {
+            name: "first".to_string(),
+            rules: vec![ReactionFilterRule::Default {
+                mode: FilterMode::DenyList,
+                emoji: vec!["🍆".to_string()],
+            }],
+            scoping: None,
+            actions: None,
+        }];
 
         let rxn = crate::model::test::default_reaction("💜");
         let result = super::filter_reaction(&filters, None, None, &rxn);

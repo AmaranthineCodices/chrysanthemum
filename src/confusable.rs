@@ -55,7 +55,6 @@ pub fn skeletonize(str: &str) -> String {
     buffer
 }
 
-
 #[cfg(test)]
 mod test {
     use super::*;
