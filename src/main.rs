@@ -136,8 +136,6 @@ async fn main() -> Result<()> {
     init_tracing();
     dotenv::dotenv().ok();
 
-    filter::init_globals();
-
     let validate_config_mode = std::env::args().nth(1) == Some("validate-configs".to_owned());
 
     if validate_config_mode {
