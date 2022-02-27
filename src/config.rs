@@ -653,35 +653,41 @@ mod test {
         substrings: []
         "#;
 
-        let rule: MessageFilterRule = serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
+        let rule: MessageFilterRule =
+            serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
         let mut errors = vec![];
         super::validate_message_rule(&rule, "rule", &mut errors);
-        assert_eq!(errors, vec![
-            "in rule, substrings contains an empty string; this would match all messages"
-        ]);
+        assert_eq!(
+            errors,
+            vec!["in rule, substrings contains an empty string; this would match all messages"]
+        );
 
         let yml = r#"
         type: words
         words: []
         "#;
 
-        let rule: MessageFilterRule = serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
+        let rule: MessageFilterRule =
+            serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
         let mut errors = vec![];
         super::validate_message_rule(&rule, "rule", &mut errors);
-        assert_eq!(errors, vec![
-            "in rule, words contains an empty string; this would match all messages"
-        ]);
+        assert_eq!(
+            errors,
+            vec!["in rule, words contains an empty string; this would match all messages"]
+        );
 
         let yml = r#"
         type: regex
         regexes: [""]
         "#;
 
-        let rule: MessageFilterRule = serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
+        let rule: MessageFilterRule =
+            serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
         let mut errors = vec![];
         super::validate_message_rule(&rule, "rule", &mut errors);
-        assert_eq!(errors, vec![
-            "in rule, regex 0 matches an empty string; this would match all messages"
-        ]);
+        assert_eq!(
+            errors,
+            vec!["in rule, regex 0 matches an empty string; this would match all messages"]
+        );
     }
 }
