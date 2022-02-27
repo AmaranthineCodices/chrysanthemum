@@ -50,7 +50,6 @@ pub fn skeletonize(str: &str) -> Cow<str> {
                 continue;
             } else {
                 result = Cow::Borrowed(&str[0..index]);
-                result.to_mut();
             }
         }
 
