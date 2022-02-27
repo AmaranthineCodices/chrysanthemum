@@ -4,6 +4,8 @@ on:
     paths:
       - src/*
       - Cargo.*
+    branches:
+      - main
   pull_request:
     paths:
       - src/*
