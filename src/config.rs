@@ -12,7 +12,7 @@ use twilight_model::{
     id::{ChannelId, EmojiId, GuildId, RoleId, UserId},
 };
 
-use regex::{Regex, RegexBuilder};
+use regex::{Regex, RegexBuilder, RegexSet};
 
 fn deserialize_regex_pattern<'de, D>(de: D) -> Result<String, D::Error>
 where
@@ -141,7 +141,7 @@ pub enum MessageFilterRule {
     },
     Regex {
         #[serde(with = "serde_regex")]
-        regexes: Vec<Regex>,
+        regexes: RegexSet,
     },
     Zalgo,
     MimeType {
@@ -389,13 +389,12 @@ fn validate_message_rule(
             }
         }
         MessageFilterRule::Regex { regexes } => {
-            for (index, regex) in regexes.iter().enumerate() {
-                if regex.is_match("") {
-                    errors.push(format!(
-                        "in {}, regex {} matches an empty string; this would match all messages",
-                        context, index
-                    ));
-                }
+            let matches = regexes.matches("").into_iter();
+            for (index, _) in matches.enumerate() {
+                errors.push(format!(
+                    "in {}, regex {} matches an empty string; this would match all messages",
+                    context, index,
+                ));
             }
         }
         _ => {}
