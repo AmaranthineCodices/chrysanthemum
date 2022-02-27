@@ -558,8 +558,7 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
                     channel: rxn.channel_id.to_string(),
                 };
 
-                send_influx_point(&state, &report.into_query("reaction_filter"))
-                    .await?;
+                send_influx_point(&state, &report.into_query("reaction_filter")).await?;
             }
         }
     }

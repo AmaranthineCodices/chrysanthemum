@@ -18,7 +18,11 @@ use twilight_util::builder::CallbackDataBuilder;
 use crate::config::SlashCommands;
 
 #[tracing::instrument("Creating slash commands")]
-pub(crate) async fn create_commands_for_guild(http: &Client, guild_id: GuildId, command_config: &SlashCommands) -> Result<CommandId> {
+pub(crate) async fn create_commands_for_guild(
+    http: &Client,
+    guild_id: GuildId,
+    command_config: &SlashCommands,
+) -> Result<CommandId> {
     let cmd = http
         .create_guild_command(guild_id, "chrysanthemum")
         .unwrap()
@@ -61,7 +65,12 @@ pub(crate) async fn create_commands_for_guild(http: &Client, guild_id: GuildId, 
 }
 
 #[tracing::instrument("Updating command permissions")]
-pub async fn update_guild_command_permissions(http: &Client, guild_id: GuildId, command_config: &SlashCommands, command_id: CommandId) -> Result<()> {
+pub async fn update_guild_command_permissions(
+    http: &Client,
+    guild_id: GuildId,
+    command_config: &SlashCommands,
+    command_id: CommandId,
+) -> Result<()> {
     let permissions: Vec<_> = command_config
         .roles
         .iter()
@@ -71,8 +80,7 @@ pub async fn update_guild_command_permissions(http: &Client, guild_id: GuildId, 
         })
         .collect();
 
-    http
-        .update_command_permissions(guild_id, command_id, &permissions)?
+    http.update_command_permissions(guild_id, command_id, &permissions)?
         .exec()
         .await?;
 
@@ -80,7 +88,13 @@ pub async fn update_guild_command_permissions(http: &Client, guild_id: GuildId, 
 }
 
 #[tracing::instrument("Updating commands to match new configuration")]
-pub async fn update_guild_commands(http: &Client, guild_id: GuildId, old_config: Option<&SlashCommands>, new_config: Option<&SlashCommands>, command_id: Option<CommandId>) -> Result<Option<CommandId>> {
+pub async fn update_guild_commands(
+    http: &Client,
+    guild_id: GuildId,
+    old_config: Option<&SlashCommands>,
+    new_config: Option<&SlashCommands>,
+    command_id: Option<CommandId>,
+) -> Result<Option<CommandId>> {
     match (old_config, new_config, command_id) {
         // Permissions have potentially changed.
         (Some(old_config), Some(new_config), Some(command_id)) => {
@@ -92,20 +106,22 @@ pub async fn update_guild_commands(http: &Client, guild_id: GuildId, old_config:
 
             update_guild_command_permissions(http, guild_id, new_config, command_id).await?;
             Ok(Some(command_id))
-        },
+        }
         // Command isn't registered.
-        (Some(_), Some(new_config), None) => {
-            Ok(Some(create_commands_for_guild(http, guild_id, new_config).await?))
-        },
+        (Some(_), Some(new_config), None) => Ok(Some(
+            create_commands_for_guild(http, guild_id, new_config).await?,
+        )),
         // Need to create the commands.
-        (None, Some(new_config), _) => {
-            Ok(Some(create_commands_for_guild(http, guild_id, new_config).await?))
-        },
+        (None, Some(new_config), _) => Ok(Some(
+            create_commands_for_guild(http, guild_id, new_config).await?,
+        )),
         // Need to delete the commands.
         (Some(_), None, Some(command_id)) => {
-            http.delete_guild_command(guild_id, command_id)?.exec().await?;
+            http.delete_guild_command(guild_id, command_id)?
+                .exec()
+                .await?;
             Ok(None)
-        },
+        }
         // We never registered commands for this guild, and the new config doesn't
         // need them, so do nothing.
         (Some(_), None, None) => Ok(None),
@@ -114,10 +130,7 @@ pub async fn update_guild_commands(http: &Client, guild_id: GuildId, old_config:
     }
 }
 
-pub(crate) async fn handle_command(
-    state: crate::State,
-    cmd: &ApplicationCommand,
-) -> Result<()> {
+pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand) -> Result<()> {
     if cmd.guild_id.is_none() {
         return Ok(());
     }
@@ -201,7 +214,9 @@ pub(crate) async fn handle_command(
             }
         }
         "arm" => {
-            state.armed.store(true, std::sync::atomic::Ordering::Relaxed);
+            state
+                .armed
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             state
                 .http
                 .interaction_callback(
@@ -211,15 +226,17 @@ pub(crate) async fn handle_command(
                         CallbackDataBuilder::new()
                             .flags(MessageFlags::EPHEMERAL)
                             .content("Chrysanthemum **armed**.".to_owned())
-                            .build()
+                            .build(),
                     ),
                 )
                 .exec()
                 .await
                 .unwrap();
-        },
+        }
         "disarm" => {
-            state.armed.store(false, std::sync::atomic::Ordering::Relaxed);
+            state
+                .armed
+                .store(false, std::sync::atomic::Ordering::Relaxed);
             state
                 .http
                 .interaction_callback(
@@ -229,26 +246,48 @@ pub(crate) async fn handle_command(
                         CallbackDataBuilder::new()
                             .flags(MessageFlags::EPHEMERAL)
                             .content("Chrysanthemum **disarmed**.".to_owned())
-                            .build()
+                            .build(),
                     ),
                 )
                 .exec()
                 .await
                 .unwrap();
-        },
+        }
         "reload" => {
             let result = crate::reload_guild_configs(&state).await;
             let embed = match result {
-                Ok(()) => EmbedBuilder::new().title("Reload successful").color(0x32_a8_52).build().unwrap(),
+                Ok(()) => EmbedBuilder::new()
+                    .title("Reload successful")
+                    .color(0x32_a8_52)
+                    .build()
+                    .unwrap(),
                 Err((_, report)) => {
                     let report = report.to_string();
-                    EmbedBuilder::new().title("Reload failure").field(EmbedFieldBuilder::new("Reason", format!("```{}```", report)).build()).build().unwrap()
+                    EmbedBuilder::new()
+                        .title("Reload failure")
+                        .field(
+                            EmbedFieldBuilder::new("Reason", format!("```{}```", report)).build(),
+                        )
+                        .build()
+                        .unwrap()
                 }
             };
 
-            state.http.interaction_callback(cmd.id, &cmd.token, &InteractionResponse::ChannelMessageWithSource(
-                CallbackDataBuilder::new().flags(MessageFlags::EPHEMERAL).embeds(vec![embed]).build()
-            )).exec().await.unwrap();
+            state
+                .http
+                .interaction_callback(
+                    cmd.id,
+                    &cmd.token,
+                    &InteractionResponse::ChannelMessageWithSource(
+                        CallbackDataBuilder::new()
+                            .flags(MessageFlags::EPHEMERAL)
+                            .embeds(vec![embed])
+                            .build(),
+                    ),
+                )
+                .exec()
+                .await
+                .unwrap();
         }
         _ => unreachable!(),
     }

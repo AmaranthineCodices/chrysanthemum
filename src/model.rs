@@ -29,7 +29,11 @@ pub(crate) struct ReactionInfo<'a> {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use twilight_model::{id::{MessageId, UserId, ChannelId}, datetime::Timestamp, channel::ReactionType};
+    use twilight_model::{
+        channel::ReactionType,
+        datetime::Timestamp,
+        id::{ChannelId, MessageId, UserId},
+    };
 
     use super::{MessageInfo, ReactionInfo};
 
@@ -38,8 +42,10 @@ pub(crate) mod test {
     pub(crate) const MESSAGE_ID: MessageId = unsafe { MessageId::new_unchecked(1) };
     pub(crate) const CHANNEL_ID: ChannelId = unsafe { ChannelId::new_unchecked(2) };
     pub(crate) const USER_ID: UserId = unsafe { UserId::new_unchecked(3) };
-    pub(crate) const GOOD_CONTENT: &'static str = "this is an okay message https://discord.gg/ discord.gg/roblox";
-    pub(crate) const BAD_CONTENT: &'static str = "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
+    pub(crate) const GOOD_CONTENT: &'static str =
+        "this is an okay message https://discord.gg/ discord.gg/roblox";
+    pub(crate) const BAD_CONTENT: &'static str =
+        "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
 
     pub(crate) fn message(content: &'static str) -> MessageInfo<'static> {
         MessageInfo {
@@ -70,7 +76,7 @@ pub(crate) mod test {
             message_id: MESSAGE_ID,
             reaction: ReactionType::Unicode {
                 name: rxn.to_string(),
-            }
+            },
         }
     }
 }

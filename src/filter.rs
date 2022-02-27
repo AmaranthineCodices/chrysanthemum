@@ -531,7 +531,7 @@ pub(crate) async fn check_spam_record(
 mod test {
     mod scoping {
         use pretty_assertions::assert_eq;
-        use twilight_model::id::{RoleId, ChannelId};
+        use twilight_model::id::{ChannelId, RoleId};
 
         use crate::config::Scoping;
 
@@ -542,13 +542,17 @@ mod test {
             let scoping = Scoping {
                 exclude_channels: None,
                 exclude_roles: None,
-                include_channels: Some(vec![
-                    ChannelId::new(1).unwrap(),
-                ]),
+                include_channels: Some(vec![ChannelId::new(1).unwrap()]),
             };
 
-            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES), false);
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES), true);
+            assert_eq!(
+                scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES),
+                false
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
+                true
+            );
         }
 
         #[test]
@@ -556,48 +560,73 @@ mod test {
             let scoping = Scoping {
                 include_channels: None,
                 exclude_roles: None,
-                exclude_channels: Some(vec![
-                    ChannelId::new(1).unwrap(),
-                ]),
+                exclude_channels: Some(vec![ChannelId::new(1).unwrap()]),
             };
 
-            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES), true);
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES), false);
+            assert_eq!(
+                scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES),
+                true
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
+                false
+            );
         }
 
         #[test]
         fn exclude_roles() {
             let scoping = Scoping {
                 include_channels: None,
-                exclude_roles: Some(vec![
-                    RoleId::new(1).unwrap(),
-                ]),
+                exclude_roles: Some(vec![RoleId::new(1).unwrap()]),
                 exclude_channels: None,
             };
 
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES), true);
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]), false);
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]), true);
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
+                true
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]),
+                false
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]),
+                true
+            );
         }
 
         #[test]
         fn complex_scoping() {
             let scoping = Scoping {
-                include_channels: Some(vec![
-                    ChannelId::new(1).unwrap(),
-                ]),
+                include_channels: Some(vec![ChannelId::new(1).unwrap()]),
                 exclude_channels: None,
-                exclude_roles: Some(vec![
-                    RoleId::new(1).unwrap(),
-                ])
+                exclude_roles: Some(vec![RoleId::new(1).unwrap()]),
             };
 
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES), true);
-            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES), false);
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]), false);
-            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(1).unwrap()]), false);
-            assert_eq!(scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]), true);
-            assert_eq!(scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(2).unwrap()]), false);
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
+                true
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES),
+                false
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]),
+                false
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(1).unwrap()]),
+                false
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]),
+                true
+            );
+            assert_eq!(
+                scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(2).unwrap()]),
+                false
+            );
         }
     }
 
@@ -605,10 +634,16 @@ mod test {
         use pretty_assertions::assert_eq;
 
         use regex::Regex;
-        use twilight_model::{id::{AttachmentId}, channel::{Attachment, message::sticker::{MessageSticker, StickerId}}};
+        use twilight_model::{
+            channel::{
+                message::sticker::{MessageSticker, StickerId},
+                Attachment,
+            },
+            id::AttachmentId,
+        };
 
-        use crate::config::{MessageFilterRule, FilterMode};
-        use crate::model::test::{message, GOOD_CONTENT, BAD_CONTENT};
+        use crate::config::{FilterMode, MessageFilterRule};
+        use crate::model::test::{message, BAD_CONTENT, GOOD_CONTENT};
 
         #[test]
         fn filter_words() {
@@ -617,7 +652,10 @@ mod test {
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains word `asdf`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains word `asdf`".to_owned())
+            );
         }
 
         #[test]
@@ -627,19 +665,23 @@ mod test {
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains substring `asdf`".to_owned()))
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains substring `asdf`".to_owned())
+            )
         }
 
         #[test]
         fn filter_regex() {
             let rule = MessageFilterRule::Regex {
-                regexes: vec![
-                    Regex::new("sd").unwrap(),
-                ],
+                regexes: vec![Regex::new("sd").unwrap()],
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("matches regex `sd`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("matches regex `sd`".to_owned())
+            );
         }
 
         #[test]
@@ -649,7 +691,10 @@ mod test {
             let rule = MessageFilterRule::Zalgo;
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains zalgo".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains zalgo".to_owned())
+            );
         }
 
         #[test]
@@ -661,20 +706,18 @@ mod test {
             };
 
             let mut ok_message = message(GOOD_CONTENT);
-            let ok_attachments = [
-                Attachment {
-                    content_type: Some("image/jpg".to_owned()),
-                    ephemeral: false,
-                    filename: "file".to_owned(),
-                    description: None,
-                    height: None,
-                    id: AttachmentId::new(1).unwrap(),
-                    proxy_url: "doesn't_matter".to_owned(),
-                    size: 1,
-                    url: "doesn't_matter".to_owned(),
-                    width: None,
-                }
-            ];
+            let ok_attachments = [Attachment {
+                content_type: Some("image/jpg".to_owned()),
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
             ok_message.attachments = &ok_attachments;
 
             let mut wrong_message = message(BAD_CONTENT);
@@ -708,8 +751,14 @@ mod test {
             missing_content_type_message.attachments = &missing_content_type_attachments;
 
             assert_eq!(rule.filter_message(&ok_message), Ok(()));
-            assert_eq!(rule.filter_message(&wrong_message), Err("contains denied content type `image/png`".to_owned()));
-            assert_eq!(rule.filter_message(&missing_content_type_message), Err("unknown content type for attachment".to_owned()));
+            assert_eq!(
+                rule.filter_message(&wrong_message),
+                Err("contains denied content type `image/png`".to_owned())
+            );
+            assert_eq!(
+                rule.filter_message(&missing_content_type_message),
+                Err("unknown content type for attachment".to_owned())
+            );
         }
 
         #[test]
@@ -721,20 +770,18 @@ mod test {
             };
 
             let mut ok_message = message(GOOD_CONTENT);
-            let ok_attachments = [
-                Attachment {
-                    content_type: Some("image/png".to_owned()),
-                    ephemeral: false,
-                    filename: "file".to_owned(),
-                    description: None,
-                    height: None,
-                    id: AttachmentId::new(1).unwrap(),
-                    proxy_url: "doesn't_matter".to_owned(),
-                    size: 1,
-                    url: "doesn't_matter".to_owned(),
-                    width: None,
-                }
-            ];
+            let ok_attachments = [Attachment {
+                content_type: Some("image/png".to_owned()),
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
             ok_message.attachments = &ok_attachments;
 
             let mut wrong_message = message(BAD_CONTENT);
@@ -768,8 +815,14 @@ mod test {
             missing_content_type_message.attachments = &missing_content_type_attachments;
 
             assert_eq!(rule.filter_message(&ok_message), Ok(()));
-            assert_eq!(rule.filter_message(&wrong_message), Err("contains unallowed content type `image/jpg`".to_owned()));
-            assert_eq!(rule.filter_message(&missing_content_type_message), Err("unknown content type for attachment".to_owned()));
+            assert_eq!(
+                rule.filter_message(&wrong_message),
+                Err("contains unallowed content type `image/jpg`".to_owned())
+            );
+            assert_eq!(
+                rule.filter_message(&missing_content_type_message),
+                Err("unknown content type for attachment".to_owned())
+            );
         }
 
         #[test]
@@ -782,7 +835,10 @@ mod test {
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains denied domain `example.com`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains denied domain `example.com`".to_owned())
+            );
         }
 
         #[test]
@@ -795,7 +851,10 @@ mod test {
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains unallowed domain `example.com`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains unallowed domain `example.com`".to_owned())
+            );
         }
 
         #[test]
@@ -808,7 +867,10 @@ mod test {
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains denied invite `evilserver`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains denied invite `evilserver`".to_owned())
+            );
         }
 
         #[test]
@@ -821,7 +883,10 @@ mod test {
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
-            assert_eq!(rule.filter_message(&message(BAD_CONTENT)), Err("contains unallowed invite `evilserver`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message(BAD_CONTENT)),
+                Err("contains unallowed invite `evilserver`".to_owned())
+            );
         }
 
         #[test]
@@ -847,7 +912,10 @@ mod test {
             bad_message.stickers = &bad_stickers;
 
             assert_eq!(rule.filter_message(&good_message), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message), Err("contains sticker with denied name substring `badsticker`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&bad_message),
+                Err("contains sticker with denied name substring `badsticker`".to_owned())
+            );
         }
 
         #[test]
@@ -874,7 +942,10 @@ mod test {
             bad_message.stickers = &bad_stickers;
 
             assert_eq!(rule.filter_message(&good_message), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message), Err("contains unallowed sticker `2`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&bad_message),
+                Err("contains unallowed sticker `2`".to_owned())
+            );
         }
 
         #[test]
@@ -901,16 +972,22 @@ mod test {
             bad_message.stickers = &bad_stickers;
 
             assert_eq!(rule.filter_message(&good_message), Ok(()));
-            assert_eq!(rule.filter_message(&bad_message), Err("contains denied sticker `2`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&bad_message),
+                Err("contains denied sticker `2`".to_owned())
+            );
         }
-    
+
         #[test]
         fn filter_words_with_skeletonization() {
             let rule = MessageFilterRule::Words {
                 words: Regex::new("\\b(bad)\\b").unwrap(),
             };
 
-            assert_eq!(rule.filter_message(&message("b⍺d message")), Err("contains word `bad`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message("b⍺d message")),
+                Err("contains word `bad`".to_owned())
+            );
         }
 
         #[test]
@@ -919,7 +996,10 @@ mod test {
                 substrings: Regex::new("(bad)").unwrap(),
             };
 
-            assert_eq!(rule.filter_message(&message("b⍺dmessage")), Err("contains substring `bad`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message("b⍺dmessage")),
+                Err("contains substring `bad`".to_owned())
+            );
         }
 
         #[test]
@@ -928,19 +1008,34 @@ mod test {
                 regexes: vec![Regex::new("bad").unwrap()],
             };
 
-            assert_eq!(rule.filter_message(&message("b⍺dmessage")), Err("matches regex `bad`".to_owned()));
+            assert_eq!(
+                rule.filter_message(&message("b⍺dmessage")),
+                Err("matches regex `bad`".to_owned())
+            );
         }
     }
 
     mod spam {
-        use std::{num::NonZeroU64, collections::{VecDeque, HashMap}, sync::Arc};
+        use std::{
+            collections::{HashMap, VecDeque},
+            num::NonZeroU64,
+            sync::Arc,
+        };
 
         use pretty_assertions::assert_eq;
 
         use tokio::sync::RwLock;
-        use twilight_model::{id::{MessageId, UserId, ChannelId, AttachmentId}, datetime::Timestamp, channel::Attachment};
+        use twilight_model::{
+            channel::Attachment,
+            datetime::Timestamp,
+            id::{AttachmentId, ChannelId, MessageId, UserId},
+        };
 
-        use crate::{model::MessageInfo, filter::{SpamRecord, exceeds_spam_thresholds, init_globals}, config::SpamFilter};
+        use crate::{
+            config::SpamFilter,
+            filter::{exceeds_spam_thresholds, init_globals, SpamRecord},
+            model::MessageInfo,
+        };
 
         use crate::model::test::{message_at_time, GOOD_CONTENT};
 
@@ -960,20 +1055,18 @@ mod test {
                 stickers: &[],
             };
 
-            let attachments = [
-                Attachment {
-                    content_type: Some("image/jpg".to_owned()),
-                    ephemeral: false,
-                    filename: "file".to_owned(),
-                    description: None,
-                    height: None,
-                    id: AttachmentId::new(1).unwrap(),
-                    proxy_url: "doesn't_matter".to_owned(),
-                    size: 1,
-                    url: "doesn't_matter".to_owned(),
-                    width: None,
-                }
-            ];
+            let attachments = [Attachment {
+                content_type: Some("image/jpg".to_owned()),
+                ephemeral: false,
+                filename: "file".to_owned(),
+                description: None,
+                height: None,
+                id: AttachmentId::new(1).unwrap(),
+                proxy_url: "doesn't_matter".to_owned(),
+                size: 1,
+                url: "doesn't_matter".to_owned(),
+                width: None,
+            }];
             info.attachments = &attachments;
 
             let record = SpamRecord::from_message(&info);
@@ -1122,7 +1215,7 @@ mod test {
             let result = exceeds_spam_thresholds(&history, &failing_record, &config);
             assert_eq!(result, Err("sent too many attachments".to_owned()));
         }
-    
+
         #[tokio::test]
         async fn remove_old_records() {
             init_globals();
@@ -1144,19 +1237,41 @@ mod test {
             let history = Arc::new(RwLock::new(history));
 
             let first_message = message_at_time(GOOD_CONTENT, 5);
-            let result = super::super::check_spam_record(&first_message, &config, history.clone(), 10 * 1_000_000).await;
+            let result = super::super::check_spam_record(
+                &first_message,
+                &config,
+                history.clone(),
+                10 * 1_000_000,
+            )
+            .await;
             assert_eq!(result, Ok(()));
 
             let second_message = message_at_time(GOOD_CONTENT, 15);
-            let result = super::super::check_spam_record(&second_message, &config, history.clone(), 20 * 1_000_000).await;
+            let result = super::super::check_spam_record(
+                &second_message,
+                &config,
+                history.clone(),
+                20 * 1_000_000,
+            )
+            .await;
             assert_eq!(result, Err("sent too many duplicate messages".to_owned()));
 
             let third_message = message_at_time(GOOD_CONTENT, 45);
-            let result = super::super::check_spam_record(&third_message, &config, history.clone(), 60 * 1_000_000).await;
+            let result = super::super::check_spam_record(
+                &third_message,
+                &config,
+                history.clone(),
+                60 * 1_000_000,
+            )
+            .await;
             assert_eq!(result, Ok(()));
 
             let read_history = history.read().await;
-            let read_history_queue = read_history.get(&crate::model::test::USER_ID).expect("user ID not in spam record?").lock().expect("couldn't lock mutex");
+            let read_history_queue = read_history
+                .get(&crate::model::test::USER_ID)
+                .expect("user ID not in spam record?")
+                .lock()
+                .expect("couldn't lock mutex");
             assert_eq!(read_history_queue.len(), 1);
         }
     }
