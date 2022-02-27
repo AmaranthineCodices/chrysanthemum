@@ -17,7 +17,7 @@ use twilight_model::{
 };
 use twilight_util::builder::CallbackDataBuilder;
 
-use crate::config::{SlashCommands, SlashCommand};
+use crate::config::{SlashCommand, SlashCommands};
 
 #[derive(Hash, Debug, PartialEq, Eq, Clone, Copy)]
 enum CommandKind {
@@ -40,31 +40,43 @@ impl CommandKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CommandState {
-    cmds: HashMap<CommandKind, CommandId>
+    cmds: HashMap<CommandKind, CommandId>,
 }
 
 impl CommandState {
     fn get_command_kind(&self, id: CommandId) -> Option<CommandKind> {
         for (kind, kind_id) in &self.cmds {
             if id == *kind_id {
-                return Some(*kind)
+                return Some(*kind);
             }
         }
-    
+
         None
     }
 }
 
-async fn update_command_permission(http: &Client, guild_id: GuildId, command_id: CommandId, command_config: &SlashCommand) -> Result<()> {
-    let permissions: Vec<_> = command_config.roles.iter().map(|r| CommandPermissions {
-        id: CommandPermissionsType::Role(*r),
-        permission: true,
-    }).chain(command_config.users.iter().map(|u| CommandPermissions {
-        id: CommandPermissionsType::User(*u),
-        permission: true,
-    })).collect();
+async fn update_command_permission(
+    http: &Client,
+    guild_id: GuildId,
+    command_id: CommandId,
+    command_config: &SlashCommand,
+) -> Result<()> {
+    let permissions: Vec<_> = command_config
+        .roles
+        .iter()
+        .map(|r| CommandPermissions {
+            id: CommandPermissionsType::Role(*r),
+            permission: true,
+        })
+        .chain(command_config.users.iter().map(|u| CommandPermissions {
+            id: CommandPermissionsType::User(*u),
+            permission: true,
+        }))
+        .collect();
 
-    http.update_command_permissions(guild_id, command_id, &permissions)?.exec().await?;
+    http.update_command_permissions(guild_id, command_id, &permissions)?
+        .exec()
+        .await?;
     Ok(())
 }
 
@@ -116,12 +128,12 @@ pub(crate) async fn create_commands_for_guild(
         .await?
         .model()
         .await?;
-    
+
     let test_cmd = test_cmd.id.unwrap();
     let arm_cmd = arm_cmd.id.unwrap();
     let disarm_cmd = disarm_cmd.id.unwrap();
     let reload_cmd = reload_cmd.id.unwrap();
-    
+
     update_command_permission(http, guild_id, arm_cmd, &command_config.arm).await?;
     update_command_permission(http, guild_id, disarm_cmd, &command_config.disarm).await?;
     update_command_permission(http, guild_id, reload_cmd, &command_config.reload).await?;
@@ -133,9 +145,7 @@ pub(crate) async fn create_commands_for_guild(
     map.insert(CommandKind::Test, test_cmd);
     map.insert(CommandKind::Reload, reload_cmd);
 
-    Ok(CommandState {
-        cmds: map,
-    })
+    Ok(CommandState { cmds: map })
 }
 
 #[tracing::instrument("Updating commands to match new configuration")]
@@ -152,7 +162,7 @@ pub(crate) async fn update_guild_commands(
             for (kind, id) in &command_state.cmds {
                 let old_config = kind.get_config(old_config);
                 let new_config = kind.get_config(new_config);
-                
+
                 // We don't want to change permissions redundantly or we'll run into
                 // Discord quotas on this endpoint fairly quickly.
                 if old_config != new_config {
@@ -199,18 +209,18 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
     let cmd_kind = {
         let cmd_states = state.cmd_states.read().await;
         let cmd_state = cmd_states.get(&guild_id).unwrap_or(&None);
-        
+
         if let Some(cmd_state) = cmd_state {
             cmd_state.get_command_kind(cmd.data.id)
         } else {
             tracing::trace!(%guild_id, "No command state for guild");
-            return Ok(())
+            return Ok(());
         }
     };
 
     if let None = cmd_kind {
         tracing::trace!(?state.cmd_states, ?cmd.data.id, "Couldn't find command kind for command invocation");
-        return Ok(())
+        return Ok(());
     }
 
     tracing::trace!(?cmd_kind, "Determined command kind");
@@ -268,7 +278,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                     }
                 }
             }
-        },
+        }
         CommandKind::Arm => {
             state
                 .armed
@@ -288,7 +298,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                 .exec()
                 .await
                 .unwrap();
-        },
+        }
         CommandKind::Disarm => {
             state
                 .armed
@@ -308,7 +318,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                 .exec()
                 .await
                 .unwrap();
-        },
+        }
         CommandKind::Reload => {
             let result = crate::reload_guild_configs(&state).await;
             let embed = match result {

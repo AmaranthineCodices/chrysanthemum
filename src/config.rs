@@ -401,7 +401,10 @@ fn validate_message_rule(
 
 fn validate_slash_command(command: &SlashCommand, context: &str, errors: &mut Vec<String>) {
     if command.roles.len() == 0 && command.users.len() == 0 {
-        errors.push(format!("{}.roles and {}.users are empty - nobody will be able to use the command", context, context));
+        errors.push(format!(
+            "{}.roles and {}.users are empty - nobody will be able to use the command",
+            context, context
+        ));
     }
 }
 
