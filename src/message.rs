@@ -544,8 +544,6 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
     #[tokio::test]
     async fn spam_check() {
-        crate::filter::init_globals();
-
         let spam_config = SpamFilter {
             duplicates: Some(1),
             actions: Some(vec![MessageFilterAction::Delete]),
@@ -593,8 +591,6 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
     #[tokio::test]
     async fn spam_check_use_default_scoping_if_no_scoping() {
-        crate::filter::init_globals();
-
         let spam_config = SpamFilter {
             spoilers: Some(1),
             actions: Some(vec![MessageFilterAction::Delete]),
@@ -623,8 +619,6 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
     #[tokio::test]
     async fn spam_check_scoping_overrides_default_scoping() {
-        crate::filter::init_globals();
-
         let spam_config = SpamFilter {
             spoilers: Some(1),
             actions: Some(vec![MessageFilterAction::Delete]),
@@ -667,8 +661,6 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
     #[tokio::test]
     async fn spam_check_use_default_actions_if_no_actions() {
-        crate::filter::init_globals();
-
         let spam_config = SpamFilter {
             spoilers: Some(1),
             actions: None,
@@ -705,8 +697,6 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
     #[tokio::test]
     async fn spam_check_actions_override_default_actions() {
-        crate::filter::init_globals();
-
         let spam_config = SpamFilter {
             spoilers: Some(1),
             actions: Some(vec![MessageFilterAction::Delete]),
@@ -743,8 +733,6 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
 
     #[tokio::test]
     async fn spam_check_after_filters() {
-        crate::filter::init_globals();
-
         let filters = vec![MessageFilter {
             name: "first".to_string(),
             rules: vec![MessageFilterRule::Words {

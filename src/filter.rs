@@ -5,34 +5,44 @@ use twilight_model::channel::ReactionType;
 use twilight_model::id::{ChannelId, RoleId, UserId};
 
 use once_cell::sync::OnceCell;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use tokio::sync::RwLock;
 
 use crate::{config, MessageInfo};
 
-static ZALGO_REGEX: OnceCell<Regex> = OnceCell::new();
-static INVITE_REGEX: OnceCell<Regex> = OnceCell::new();
-static LINK_REGEX: OnceCell<Regex> = OnceCell::new();
-static SPOILER_REGEX: OnceCell<Regex> = OnceCell::new();
-static EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
-static CUSTOM_EMOJI_REGEX: OnceCell<Regex> = OnceCell::new();
-static MENTION_REGEX: OnceCell<Regex> = OnceCell::new();
-
-pub fn init_globals() {
-    // The Err case here is if the cell already has a value in it. In this case
-    // we want to just ignore it. The only time this will happen is in tests,
-    // where each test can call init_globals().
-    let _ = ZALGO_REGEX
-        .set(Regex::new("\\u0303|\\u035F|\\u034F|\\u0327|\\u031F|\\u0353|\\u032F|\\u0318|\\u0353|\\u0359|\\u0354").unwrap());
-    let _ = INVITE_REGEX.set(Regex::new("discord.gg/(\\w+)").unwrap());
-    let _ = LINK_REGEX.set(Regex::new("https?://([^/\\s]+)").unwrap());
-    let _ = SPOILER_REGEX.set(Regex::new("\\|\\|[^\\|]*\\|\\|").unwrap());
-    let _ = EMOJI_REGEX.set(
-        Regex::new("\\p{Emoji_Presentation}|\\p{Emoji}\\uFE0F|\\p{Emoji_Modifier_Base}").unwrap(),
-    );
-    let _ = CUSTOM_EMOJI_REGEX.set(Regex::new("<a?:([^:]+):(\\d+)>").unwrap());
-    let _ = MENTION_REGEX.set(Regex::new("<@[!&]?\\d+>").unwrap());
+macro_rules! static_regex {
+    ($name:ident = $init:expr) => {
+        fn $name() -> &'static Regex {
+            static REGEX: OnceCell<Regex> = OnceCell::new();
+            REGEX.get_or_init(|| $init)
+        }
+    };
 }
+
+static_regex!(
+    zalgo_regex =
+        Regex::new(r"\u0303|\u035F|\u034F|\u0327|\u031F|\u0353|\u032F|\u0318|\u0353|\u0359|\u0354")
+            .unwrap()
+);
+static_regex!(
+    invite_regex = RegexBuilder::new(r"discord.gg/(\w+)")
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+);
+static_regex!(
+    link_regex = RegexBuilder::new(r"https?://([^/\s]+)")
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+);
+static_regex!(spoiler_regex = Regex::new(r"\|\|[^\|]*\|\|").unwrap());
+static_regex!(
+    emoji_regex =
+        Regex::new(r"\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}").unwrap()
+);
+static_regex!(custom_emoji_regex = Regex::new(r"<a?:([^:]+):(\d+)>").unwrap());
+static_regex!(mention_regex = Regex::new(r"<@[!&]?\d+>").unwrap());
 
 pub type FilterResult = Result<(), String>;
 
@@ -173,7 +183,7 @@ impl config::MessageFilterRule {
                 Ok(())
             }
             config::MessageFilterRule::Zalgo => {
-                let zalgo_regex = ZALGO_REGEX.get().unwrap();
+                let zalgo_regex = zalgo_regex();
                 if zalgo_regex.is_match(text) {
                     Err("contains zalgo".to_owned())
                 } else {
@@ -181,14 +191,14 @@ impl config::MessageFilterRule {
                 }
             }
             config::MessageFilterRule::Invite { mode, invites } => {
-                let invite_regex = INVITE_REGEX.get().unwrap();
+                let invite_regex = invite_regex();
                 let mut invite_ids = invite_regex
                     .captures_iter(text)
                     .map(|c| c.get(1).unwrap().as_str());
                 filter_values(mode, "invite", &mut invite_ids, invites)
             }
             config::MessageFilterRule::Link { mode, domains } => {
-                let link_regex = LINK_REGEX.get().unwrap();
+                let link_regex = link_regex();
                 let mut link_domains = link_regex
                     .captures_iter(text)
                     .map(|c| c.get(1).unwrap().as_str())
@@ -208,7 +218,7 @@ impl config::MessageFilterRule {
                 result.unwrap_or(Ok(()))
             }
             config::MessageFilterRule::EmojiName { names } => {
-                for capture in CUSTOM_EMOJI_REGEX.get().unwrap().captures_iter(text) {
+                for capture in custom_emoji_regex().captures_iter(text) {
                     let name = capture.get(1).unwrap().as_str();
                     let substring_match = names.captures(name);
                     if let Some(substring_match) = substring_match {
@@ -360,26 +370,10 @@ pub struct SpamRecord {
 
 impl SpamRecord {
     pub(crate) fn from_message(message: &MessageInfo) -> SpamRecord {
-        let spoilers = SPOILER_REGEX
-            .get()
-            .unwrap()
-            .find_iter(&message.content)
-            .count();
-        let emoji = EMOJI_REGEX
-            .get()
-            .unwrap()
-            .find_iter(&message.content)
-            .count();
-        let links = LINK_REGEX
-            .get()
-            .unwrap()
-            .find_iter(&message.content)
-            .count();
-        let mentions = MENTION_REGEX
-            .get()
-            .unwrap()
-            .find_iter(&message.content)
-            .count();
+        let spoilers = spoiler_regex().find_iter(&message.content).count();
+        let emoji = emoji_regex().find_iter(&message.content).count();
+        let links = link_regex().find_iter(&message.content).count();
+        let mentions = mention_regex().find_iter(&message.content).count();
 
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
@@ -686,8 +680,6 @@ mod test {
 
         #[test]
         fn filter_zalgo() {
-            super::super::init_globals();
-
             let rule = MessageFilterRule::Zalgo;
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
@@ -827,8 +819,6 @@ mod test {
 
         #[test]
         fn filter_domain_deny() {
-            super::super::init_globals();
-
             let rule = MessageFilterRule::Link {
                 mode: FilterMode::DenyList,
                 domains: vec!["example.com".to_owned()],
@@ -843,8 +833,6 @@ mod test {
 
         #[test]
         fn filter_domain_allow() {
-            super::super::init_globals();
-
             let rule = MessageFilterRule::Link {
                 mode: FilterMode::AllowList,
                 domains: vec!["discord.gg".to_owned()],
@@ -859,8 +847,6 @@ mod test {
 
         #[test]
         fn filter_invite_deny() {
-            super::super::init_globals();
-
             let rule = MessageFilterRule::Invite {
                 mode: FilterMode::DenyList,
                 invites: vec!["evilserver".to_owned()],
@@ -875,8 +861,6 @@ mod test {
 
         #[test]
         fn filter_invite_allow() {
-            super::super::init_globals();
-
             let rule = MessageFilterRule::Invite {
                 mode: FilterMode::AllowList,
                 invites: vec!["roblox".to_owned()],
@@ -1033,7 +1017,7 @@ mod test {
 
         use crate::{
             config::SpamFilter,
-            filter::{exceeds_spam_thresholds, init_globals, SpamRecord},
+            filter::{exceeds_spam_thresholds, SpamRecord},
             model::MessageInfo,
         };
 
@@ -1041,8 +1025,6 @@ mod test {
 
         #[test]
         fn spam_record_creation() {
-            super::super::init_globals();
-
             let mut info = MessageInfo {
                 author_is_bot: false,
                 id: MessageId(NonZeroU64::new(1).unwrap()),
@@ -1218,8 +1200,6 @@ mod test {
 
         #[tokio::test]
         async fn remove_old_records() {
-            init_globals();
-
             let history = HashMap::new();
 
             let config = SpamFilter {
