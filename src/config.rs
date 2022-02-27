@@ -378,7 +378,10 @@ fn validate_message_rule(
             }
         }
         MessageFilterRule::Words { words } => {
-            if words.is_match("") {
+            // HACK: The empty string doesn't work here, because of the structure
+            // of the deserialized `words` regex. We use the letter `a`, since the
+            // regex crate provides no better way to do this...
+            if words.is_match("a") {
                 errors.push(format!(
                     "in {}, words contains an empty string; this would match all messages",
                     context
@@ -641,5 +644,44 @@ mod test {
         } else {
             assert!(false, "deserialized wrong filter");
         }
+    }
+
+    #[test]
+    fn validate_catches_empty_regex() {
+        let yml = r#"
+        type: substring
+        substrings: []
+        "#;
+
+        let rule: MessageFilterRule = serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
+        let mut errors = vec![];
+        super::validate_message_rule(&rule, "rule", &mut errors);
+        assert_eq!(errors, vec![
+            "in rule, substrings contains an empty string; this would match all messages"
+        ]);
+
+        let yml = r#"
+        type: words
+        words: []
+        "#;
+
+        let rule: MessageFilterRule = serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
+        let mut errors = vec![];
+        super::validate_message_rule(&rule, "rule", &mut errors);
+        assert_eq!(errors, vec![
+            "in rule, words contains an empty string; this would match all messages"
+        ]);
+
+        let yml = r#"
+        type: regex
+        regexes: [""]
+        "#;
+
+        let rule: MessageFilterRule = serde_yaml::from_str(&yml).expect("couldn't deserialize MessageFilterRule");
+        let mut errors = vec![];
+        super::validate_message_rule(&rule, "rule", &mut errors);
+        assert_eq!(errors, vec![
+            "in rule, regex 0 matches an empty string; this would match all messages"
+        ]);
     }
 }
