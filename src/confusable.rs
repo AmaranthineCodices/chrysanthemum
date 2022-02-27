@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use once_cell::sync::OnceCell;
 
@@ -40,19 +40,33 @@ fn confusables() -> &'static HashMap<char, String> {
     })
 }
 
-pub fn skeletonize(str: &str) -> String {
-    let mut buffer = String::with_capacity(str.len());
+pub fn skeletonize(str: &str) -> Cow<str> {
+    let mut result = Cow::Borrowed(str);
     let confusables = confusables();
 
-    for (_index, char) in str.char_indices() {
+    for (index, char) in str.char_indices() {
+        if matches!(result, Cow::Borrowed(_)) {
+            if !confusables.contains_key(&char) {
+                // Don't need to make any changes: this character isn't confusable.
+                continue;
+            } else {
+                // Right now, `result` is the original string in full.
+                // We want to only include the unconfusable characters that preceded this one.
+                // Reassign result here. We'll copy this slice of the string in the next if statement.
+                result = Cow::Borrowed(&str[0..index]);
+            }
+        }
+
         if let Some(to) = confusables.get(&char) {
-            buffer.push_str(to);
+            result.to_mut().push_str(to);
         } else {
-            buffer.push(char);
+            // This branch will only be executed if we've already copied the string, in which case
+            // we need to append the unconfusable character to the copy.
+            result.to_mut().push(char);
         }
     }
 
-    buffer
+    result
 }
 
 #[cfg(test)]
@@ -62,5 +76,11 @@ mod test {
     #[test]
     fn test_skeletonize() {
         assert_eq!(skeletonize("ρɑɣρɑl"), "paypal");
+        assert_eq!(skeletonize("paɣρɑl"), "paypal");
+    }
+
+    #[test]
+    fn dont_copy_if_no_confusables() {
+        assert_eq!(skeletonize("paypal"), Cow::Borrowed("paypal"));
     }
 }
