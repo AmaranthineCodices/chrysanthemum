@@ -47,8 +47,12 @@ pub fn skeletonize(str: &str) -> Cow<str> {
     for (index, char) in str.char_indices() {
         if matches!(result, Cow::Borrowed(_)) {
             if !confusables.contains_key(&char) {
+                // Don't need to make any changes: this character isn't confusable.
                 continue;
             } else {
+                // Right now, `result` is the original string in full.
+                // We want to only include the unconfusable characters that preceded this one.
+                // Reassign result here. We'll copy this slice of the string in the next if statement.
                 result = Cow::Borrowed(&str[0..index]);
             }
         }
@@ -56,6 +60,8 @@ pub fn skeletonize(str: &str) -> Cow<str> {
         if let Some(to) = confusables.get(&char) {
             result.to_mut().push_str(to);
         } else {
+            // This branch will only be executed if we've already copied the string, in which case
+            // we need to append the unconfusable character to the copy.
             result.to_mut().push(char);
         }
     }
