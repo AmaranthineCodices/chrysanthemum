@@ -1,4 +1,7 @@
 # chrysanthemum
+
+[![CI](https://github.com/AmaranthineCodices/chrysanthemum/actions/workflows/ci.yml/badge.svg)](https://github.com/AmaranthineCodices/chrysanthemum/actions/workflows/ci.yml)
+
 Chrysanthemum is a message filtering Discord bot developed for the [unofficial Roblox Discord server](https://discord.gg/roblox).
 
 ## Configuration
