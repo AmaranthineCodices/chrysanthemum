@@ -1,5 +1,13 @@
 name: CI
-on: [push]
+on:
+  push:
+    paths:
+      - src/*
+      - Cargo.*
+  pull_request:
+    paths:
+      - src/*
+      - Cargo.*
 jobs:
   check:
     runs-on: ubuntu-latest
