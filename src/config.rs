@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use twilight_model::{
     channel::message::sticker::StickerId,
-    id::{ChannelId, EmojiId, GuildId, RoleId},
+    id::{ChannelId, EmojiId, GuildId, RoleId, UserId},
 };
 
 use regex::{Regex, RegexBuilder};
@@ -241,10 +241,20 @@ pub struct ReactionFilter {
     pub actions: Option<Vec<MessageFilterAction>>,
 }
 
+#[derive(Deserialize, Debug, PartialEq, Eq)]
+pub struct SlashCommand {
+    #[serde(default)]
+    pub roles: Vec<RoleId>,
+    #[serde(default)]
+    pub users: Vec<UserId>,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct SlashCommands {
-    /// Which roles are allowed to use slash commands.
-    pub roles: Vec<RoleId>,
+    pub test: SlashCommand,
+    pub arm: SlashCommand,
+    pub disarm: SlashCommand,
+    pub reload: SlashCommand,
 }
 
 #[derive(Deserialize, Debug)]
@@ -389,15 +399,23 @@ fn validate_message_rule(
     }
 }
 
+fn validate_slash_command(command: &SlashCommand, context: &str, errors: &mut Vec<String>) {
+    if command.roles.len() == 0 && command.users.len() == 0 {
+        errors.push(format!(
+            "{}.roles and {}.users are empty - nobody will be able to use the command",
+            context, context
+        ));
+    }
+}
+
 pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
     let mut errors = Vec::new();
 
     if let Some(slash_commands) = &guild.slash_commands {
-        if slash_commands.roles.len() == 0 {
-            errors.push(format!(
-                "slash_commands.roles is empty - no roles will be able to use slash commands."
-            ));
-        }
+        validate_slash_command(&slash_commands.arm, "slash_commands.arm", &mut errors);
+        validate_slash_command(&slash_commands.disarm, "slash_commands.disarm", &mut errors);
+        validate_slash_command(&slash_commands.test, "slash_commands.test", &mut errors);
+        validate_slash_command(&slash_commands.reload, "slash_commands.reload", &mut errors);
     }
 
     if let Some(scoping) = &guild.default_scoping {
