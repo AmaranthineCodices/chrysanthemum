@@ -19,11 +19,28 @@ macro_rules! static_regex {
     };
 }
 
-static_regex!(zalgo_regex = Regex::new(r"\u0303|\u035F|\u034F|\u0327|\u031F|\u0353|\u032F|\u0318|\u0353|\u0359|\u0354").unwrap());
-static_regex!(invite_regex = RegexBuilder::new(r"discord.gg/(\w+)").case_insensitive(true).build().unwrap());
-static_regex!(link_regex = RegexBuilder::new(r"https?://([^/\s]+)").case_insensitive(true).build().unwrap());
+static_regex!(
+    zalgo_regex =
+        Regex::new(r"\u0303|\u035F|\u034F|\u0327|\u031F|\u0353|\u032F|\u0318|\u0353|\u0359|\u0354")
+            .unwrap()
+);
+static_regex!(
+    invite_regex = RegexBuilder::new(r"discord.gg/(\w+)")
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+);
+static_regex!(
+    link_regex = RegexBuilder::new(r"https?://([^/\s]+)")
+        .case_insensitive(true)
+        .build()
+        .unwrap()
+);
 static_regex!(spoiler_regex = Regex::new(r"\|\|[^\|]*\|\|").unwrap());
-static_regex!(emoji_regex = Regex::new(r"\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}").unwrap());
+static_regex!(
+    emoji_regex =
+        Regex::new(r"\p{Emoji_Presentation}|\p{Emoji}\uFE0F|\p{Emoji_Modifier_Base}").unwrap()
+);
 static_regex!(custom_emoji_regex = Regex::new(r"<a?:([^:]+):(\d+)>").unwrap());
 static_regex!(mention_regex = Regex::new(r"<@[!&]?\d+>").unwrap());
 
@@ -353,18 +370,10 @@ pub struct SpamRecord {
 
 impl SpamRecord {
     pub(crate) fn from_message(message: &MessageInfo) -> SpamRecord {
-        let spoilers = spoiler_regex()
-            .find_iter(&message.content)
-            .count();
-        let emoji = emoji_regex()
-            .find_iter(&message.content)
-            .count();
-        let links = link_regex()
-            .find_iter(&message.content)
-            .count();
-        let mentions = mention_regex()
-            .find_iter(&message.content)
-            .count();
+        let spoilers = spoiler_regex().find_iter(&message.content).count();
+        let emoji = emoji_regex().find_iter(&message.content).count();
+        let links = link_regex().find_iter(&message.content).count();
+        let mentions = mention_regex().find_iter(&message.content).count();
 
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
