@@ -174,9 +174,15 @@ impl config::MessageFilterRule {
 
                 tracing::trace!(%text, %skeleton, ?regexes, "Performing regex text filtration");
 
-                for regex in regexes {
-                    if regex.is_match(&skeleton) || regex.is_match(&text) {
-                        return Err(format!("matches regex `{}`", regex));
+                let raw_match = regexes.matches(text).into_iter().next();
+                let skeleton_match = regexes.matches(&skeleton).into_iter().next();
+
+                if let Some(pattern_index) = raw_match.or(skeleton_match) {
+                    let pattern = regexes.patterns().iter().nth(pattern_index);
+
+                    debug_assert!(matches!(pattern, Some(_)));
+                    if let Some(pattern) = pattern {
+                        return Err(format!("matches regex `{}`", pattern));
                     }
                 }
 
@@ -627,7 +633,7 @@ mod test {
     mod messages {
         use pretty_assertions::assert_eq;
 
-        use regex::Regex;
+        use regex::{Regex, RegexSet};
         use twilight_model::{
             channel::{
                 message::sticker::{MessageSticker, StickerId},
@@ -668,7 +674,7 @@ mod test {
         #[test]
         fn filter_regex() {
             let rule = MessageFilterRule::Regex {
-                regexes: vec![Regex::new("sd").unwrap()],
+                regexes: RegexSet::new(&["sd"]).unwrap(),
             };
 
             assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
@@ -989,7 +995,7 @@ mod test {
         #[test]
         fn filter_regex_with_skeletonization() {
             let rule = MessageFilterRule::Regex {
-                regexes: vec![Regex::new("bad").unwrap()],
+                regexes: RegexSet::new(&["bad"]).unwrap(),
             };
 
             assert_eq!(
