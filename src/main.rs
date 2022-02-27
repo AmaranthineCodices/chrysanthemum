@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use action::{MessageAction, ReactionAction};
 use chrono::{DateTime, Utc};
+use command::CommandState;
 use filter::SpamHistory;
 use influxdb::{InfluxDbWriteable, WriteQuery};
 use reqwest::header::HeaderValue;
@@ -25,7 +26,7 @@ use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::{Message, Reaction};
 use twilight_model::gateway::payload::incoming::MessageUpdate;
 use twilight_model::gateway::Intents;
-use twilight_model::id::{CommandId, GuildId};
+use twilight_model::id::GuildId;
 
 use color_eyre::eyre::Result;
 
@@ -50,7 +51,7 @@ struct State {
     http: Arc<HttpClient>,
     cache: Arc<InMemoryCache>,
     spam_history: Arc<RwLock<SpamHistory>>,
-    cmd_ids: Arc<RwLock<HashMap<GuildId, Option<CommandId>>>>,
+    cmd_states: Arc<RwLock<HashMap<GuildId, Option<CommandState>>>>,
     influx_client: Arc<Option<influxdb::Client>>,
     influx_report_count: Arc<AtomicUsize>,
     armed: Arc<AtomicBool>,
@@ -207,7 +208,7 @@ async fn main() -> Result<()> {
         cfg,
         cache: Arc::new(cache),
         guild_cfgs: Arc::new(RwLock::new(initial_guild_configs)),
-        cmd_ids: Arc::new(RwLock::new(cmd_ids)),
+        cmd_states: Arc::new(RwLock::new(cmd_ids)),
         influx_client: Arc::new(influx_client),
         influx_report_count: Arc::new(AtomicUsize::new(0)),
     };
@@ -317,10 +318,10 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
         Event::Ready(ready) => {
             state.http.set_application_id(ready.application.id);
             let guild_cfgs = state.guild_cfgs.read().await;
-            let mut cmd_ids = state.cmd_ids.write().await;
+            let mut cmd_states = state.cmd_states.write().await;
 
             for (guild_id, guild_config) in guild_cfgs.iter() {
-                let cmd_id = command::update_guild_commands(
+                let cmd_state = command::update_guild_commands(
                     &state.http,
                     *guild_id,
                     None,
@@ -328,7 +329,7 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
                     None,
                 )
                 .await?;
-                cmd_ids.insert(*guild_id, cmd_id);
+                cmd_states.insert(*guild_id, cmd_state);
             }
         }
         Event::InteractionCreate(interaction) => {
@@ -351,7 +352,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
     tracing::debug!("Reloading guild configurations");
     let new_guild_configs =
         crate::config::load_guild_configs(&state.cfg.guild_config_dir, &state.cfg.active_guilds)?;
-    let mut command_ids = state.cmd_ids.write().await;
+    let mut command_states = state.cmd_states.write().await;
     let mut guild_cfgs = state.guild_cfgs.write().await;
 
     // We can't interact with commands until we have an application ID from the
@@ -362,18 +363,18 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
             // We should always have an old guild config when this method is invoked,
             // because we load configs initially before entering the event loop.
             let old_guild_config = guild_cfgs.get(guild_id).expect("No old guild config?");
-            let command_id = command_ids.get(guild_id).map(|v| *v).unwrap_or(None);
+            let command_state = command_states.remove(guild_id).unwrap_or(None);
 
-            let new_command_id = command::update_guild_commands(
+            let new_command_state = command::update_guild_commands(
                 &state.http,
                 *guild_id,
                 old_guild_config.slash_commands.as_ref(),
                 new_guild_config.slash_commands.as_ref(),
-                command_id,
+                command_state,
             )
             .await
             .map_err(|e| (*guild_id, e))?;
-            command_ids.insert(*guild_id, new_command_id);
+            command_states.insert(*guild_id, new_command_state);
         }
     }
 
