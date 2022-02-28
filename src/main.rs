@@ -130,18 +130,8 @@ fn validate_configs() -> Result<()> {
     Ok(())
 }
 
-fn main() -> Result<()> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .worker_threads(1)
-        .max_blocking_threads(1)
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(real_main())?;
-    Ok(())
-}
-
-async fn real_main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     color_eyre::install()?;
     init_tracing();
     dotenv::dotenv().ok();
