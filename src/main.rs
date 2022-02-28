@@ -131,7 +131,12 @@ fn validate_configs() -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    let rt = tokio::runtime::Builder::new_current_thread().worker_threads(1).max_blocking_threads(1).enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .worker_threads(1)
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(real_main())?;
     Ok(())
 }
@@ -605,7 +610,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
                 .roles
                 .iter()
                 .map(|r| *r)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
         }
     };
 
@@ -649,8 +654,8 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                             // another thread holds a reference to the cached message. Dropping
                             // the cached reference prevents this.
                             drop(message);
-                            return filter_message_edit_http(update, state).await
-                        },
+                            return filter_message_edit_http(update, state).await;
+                        }
                     }
                 }
             };
