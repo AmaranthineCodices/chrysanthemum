@@ -196,7 +196,7 @@ pub(crate) async fn update_guild_commands(
     }
 }
 
-#[tracing::instrument("Handling application command invocation")]
+#[tracing::instrument("Handling application command invocation", skip(state))]
 pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand) -> Result<()> {
     tracing::debug!(?cmd.data.id, ?state.cmd_states, "Executing command");
     if cmd.guild_id.is_none() {

@@ -130,8 +130,13 @@ fn validate_configs() -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let rt = tokio::runtime::Builder::new_current_thread().worker_threads(1).max_blocking_threads(1).enable_all().build().unwrap();
+    rt.block_on(real_main())?;
+    Ok(())
+}
+
+async fn real_main() -> Result<()> {
     color_eyre::install()?;
     init_tracing();
     dotenv::dotenv().ok();
@@ -254,7 +259,7 @@ async fn handle_event_wrapper(event: Event, state: State) {
     let time = end - start;
 
     if let Err(report) = result {
-        tracing::error!(result = %report, event = ?event, "Error handling event");
+        tracing::error!(result = ?report, event = ?event, "Error handling event");
     }
 
     let (guild_id, channel_id, action_kind) = match event {
@@ -299,7 +304,7 @@ async fn handle_event_wrapper(event: Event, state: State) {
     }
 }
 
-#[tracing::instrument("Handling event")]
+#[tracing::instrument("Handling event", skip(state))]
 async fn handle_event(event: &Event, state: State) -> Result<()> {
     match event {
         Event::MessageCreate(message) => {
@@ -345,7 +350,7 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument("Reloading guild configurations")]
+#[tracing::instrument("Reloading guild configurations", skip(state))]
 async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Report)> {
     tracing::debug!("Reloading guild configurations");
     let new_guild_configs =
@@ -381,7 +386,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
     Ok(())
 }
 
-#[tracing::instrument("Filtering message")]
+#[tracing::instrument("Filtering message", skip(state))]
 async fn filter_message_info<'msg>(
     guild_id: GuildId,
     message_info: &'msg MessageInfo<'_>,
@@ -419,11 +424,13 @@ async fn filter_message_info<'msg>(
                 let mut deleted = false;
 
                 for action in failure.actions {
+                    tracing::trace!(?action, "Executing action");
                     match action {
                         // We only want to execute Delete actions once per message,
                         // since we'll get a 404 on subsequent requests.
                         MessageAction::Delete { .. } => {
                             if deleted {
+                                tracing::trace!(?action, "Skipping duplicate delete action");
                                 continue;
                             }
 
@@ -433,6 +440,7 @@ async fn filter_message_info<'msg>(
                     }
 
                     if action.requires_armed() && !armed {
+                        tracing::trace!(?action, "Skipping execution because we are not armed");
                         continue;
                     }
 
@@ -441,6 +449,8 @@ async fn filter_message_info<'msg>(
                     }
                 }
 
+                tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, "Filtration completed, all actions executed");
+
                 let report = MessageFilterReport {
                     time: Utc::now(),
                     guild: guild_id.to_string(),
@@ -448,6 +458,7 @@ async fn filter_message_info<'msg>(
                 };
 
                 send_influx_point(&state, &report.into_query(context)).await?;
+                tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, "Influx point sent");
             }
         }
     }
@@ -455,7 +466,7 @@ async fn filter_message_info<'msg>(
     Ok(())
 }
 
-#[tracing::instrument("Filtering message")]
+#[tracing::instrument("Filtering message", skip(state))]
 async fn filter_message(message: &Message, state: State) -> Result<()> {
     let guild_id = match message.guild_id {
         Some(id) => id,
@@ -489,7 +500,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
     filter_message_info(guild_id, &message_info, &state, "message create").await
 }
 
-#[tracing::instrument("Filtering reaction")]
+#[tracing::instrument("Filtering reaction", skip(state))]
 async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
     if rxn.guild_id.is_none() {
         tracing::trace!("A reaction was added, but no guild ID is present. Ignoring.");
@@ -565,7 +576,7 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument("Filtering message edit via HTTP request")]
+#[tracing::instrument("Filtering message edit via HTTP request", skip(state))]
 async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Result<()> {
     let guild_id = match update.guild_id {
         Some(id) => id,
@@ -580,26 +591,21 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         .model()
         .await?;
 
-    let cached_member = state.cache.member(guild_id, http_message.author.id);
-    // Exists purely as a lifetime extension.
-    let http_member_roles;
-    let author_roles = match cached_member.as_ref() {
-        Some(member) => member.roles(),
-        None => {
-            http_member_roles = Some(
-                state
-                    .http
-                    .guild_member(guild_id, http_message.author.id)
-                    .exec()
-                    .await?
-                    .model()
-                    .await?
-                    .roles
-                    .iter()
-                    .map(|r| *r)
-                    .collect::<Vec<_>>(),
-            );
-            http_member_roles.as_ref().map(|r| &r[..]).unwrap()
+    let author_roles = {
+        let cached_member = state.cache.member(guild_id, http_message.author.id);
+        match cached_member.as_ref() {
+            Some(member) => member.roles().to_owned(),
+            None => state
+                .http
+                .guild_member(guild_id, http_message.author.id)
+                .exec()
+                .await?
+                .model()
+                .await?
+                .roles
+                .iter()
+                .map(|r| *r)
+                .collect::<Vec<_>>()
         }
     };
 
@@ -609,7 +615,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         channel_id: http_message.channel_id,
         timestamp: http_message.timestamp,
         author_is_bot: http_message.author.bot,
-        author_roles: author_roles,
+        author_roles: &author_roles[..],
         content: &http_message.content,
         attachments: &http_message.attachments,
         stickers: &http_message.sticker_items,
@@ -618,7 +624,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
     filter_message_info(guild_id, &message_info, &state, "message edit").await
 }
 
-#[tracing::instrument("Filtering message edit")]
+#[tracing::instrument("Filtering message edit", skip(state))]
 async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()> {
     let guild_id = match update.guild_id {
         Some(id) => id,
@@ -627,7 +633,7 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
 
     let cached_message = state.cache.message(update.id);
 
-    match (cached_message, update.content.as_ref()) {
+    match (cached_message, update.content.as_deref()) {
         (Some(message), Some(content)) => {
             tracing::trace!("Got message from cache and content from update");
 
@@ -637,27 +643,43 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                     let cached_author = state.cache.user(message.author());
                     match cached_author {
                         Some(author) => (author.id, author.bot),
-                        None => return filter_message_edit_http(update, state).await,
+                        None => {
+                            // Drop the reference to the cached data. In general, updating the
+                            // Twilight cache can deadlock when a message gets deleted while
+                            // another thread holds a reference to the cached message. Dropping
+                            // the cached reference prevents this.
+                            drop(message);
+                            return filter_message_edit_http(update, state).await
+                        },
                     }
                 }
             };
 
-            let cached_member = state.cache.member(guild_id, message.author());
-            let author_roles = match cached_member.as_ref() {
-                Some(member) => member.roles(),
-                None => return filter_message_edit_http(update, state).await,
+            let timestamp = message.timestamp();
+            let attachments = message.attachments().to_owned();
+            let sticker_items = message.sticker_items().to_owned();
+
+            // For the same reason as above, we drop the message here.
+            drop(message);
+
+            let author_roles = {
+                let cached_member = state.cache.member(guild_id, author_id);
+                match cached_member.as_ref() {
+                    Some(member) => member.roles().to_owned(),
+                    None => return filter_message_edit_http(update, state).await,
+                }
             };
 
             let message_info = MessageInfo {
                 id: update.id,
                 author_id,
                 author_is_bot,
-                author_roles,
-                content: &content,
-                channel_id: message.channel_id(),
-                timestamp: message.timestamp(),
-                attachments: message.attachments(),
-                stickers: message.sticker_items(),
+                author_roles: &author_roles[..],
+                content,
+                channel_id: update.channel_id,
+                timestamp,
+                attachments: &attachments[..],
+                stickers: &sticker_items[..],
             };
 
             filter_message_info(guild_id, &message_info, state, "message edit").await
