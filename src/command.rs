@@ -55,6 +55,7 @@ impl CommandState {
     }
 }
 
+#[tracing::instrument(skip(http, command_config))]
 async fn update_command_permission(
     http: &Client,
     guild_id: GuildId,
@@ -80,7 +81,7 @@ async fn update_command_permission(
     Ok(())
 }
 
-#[tracing::instrument("Creating slash commands")]
+#[tracing::instrument(skip(http, command_config))]
 pub(crate) async fn create_commands_for_guild(
     http: &Client,
     guild_id: GuildId,
@@ -148,7 +149,7 @@ pub(crate) async fn create_commands_for_guild(
     Ok(CommandState { cmds: map })
 }
 
-#[tracing::instrument("Updating commands to match new configuration")]
+#[tracing::instrument(skip(http, old_config, new_config, command_state))]
 pub(crate) async fn update_guild_commands(
     http: &Client,
     guild_id: GuildId,
@@ -196,7 +197,7 @@ pub(crate) async fn update_guild_commands(
     }
 }
 
-#[tracing::instrument("Handling application command invocation", skip(state))]
+#[tracing::instrument(skip(state))]
 pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand) -> Result<()> {
     tracing::debug!(?cmd.data.id, ?state.cmd_states, "Executing command");
     if cmd.guild_id.is_none() {

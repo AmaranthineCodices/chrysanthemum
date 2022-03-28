@@ -85,6 +85,7 @@ fn map_filter_action_to_action(
     }
 }
 
+#[tracing::instrument(skip(filters, default_scoping, default_actions))]
 fn filter_message(
     filters: &[MessageFilter],
     default_scoping: Option<&Scoping>,
@@ -130,6 +131,7 @@ fn filter_message(
 // Explicit lifetime is necessary to prevent https://github.com/rust-lang/rust/issues/63033
 // from occurring. We technically want two lifetimes, 'cfg and 'msg, but that also
 // triggers that issue.
+#[tracing::instrument(skip(spam_config, default_scoping, default_actions, spam_history))]
 async fn spam_check_message<'msg>(
     spam_config: &'msg SpamFilter,
     default_scoping: Option<&'msg Scoping>,
@@ -169,6 +171,7 @@ async fn spam_check_message<'msg>(
     }
 }
 
+#[tracing::instrument(skip(spam_config, filters, default_scoping, default_actions, spam_history))]
 pub(crate) async fn filter_and_spam_check_message<'msg>(
     spam_config: Option<&'msg SpamFilter>,
     filters: &'msg [MessageFilter],
