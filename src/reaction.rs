@@ -48,6 +48,7 @@ fn map_filter_action_to_action(
     }
 }
 
+#[tracing::instrument(skip(filters, default_scoping, default_actions))]
 pub(crate) fn filter_reaction(
     filters: &[ReactionFilter],
     default_scoping: Option<&Scoping>,

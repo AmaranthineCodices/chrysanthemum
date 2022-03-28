@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -6,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use action::{MessageAction, ReactionAction};
 use chrono::{DateTime, Utc};
+use color_eyre::Report;
 use command::CommandState;
 use filter::SpamHistory;
 use influxdb::{InfluxDbWriteable, WriteQuery};
@@ -98,11 +100,16 @@ fn init_tracing() {
 
 #[cfg(not(debug_assertions))]
 fn init_tracing() {
-    tracing_subscriber::fmt()
+    let subscriber = tracing_subscriber::fmt()
         .json()
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .finish();
+
+    tracing_subscriber::Registry::default()
+        .with(subscriber)
+        .with(sentry::integrations::tracing::layer())
         .init();
 }
 
@@ -157,6 +164,7 @@ async fn main() -> Result<()> {
             sentry_config.url.clone(),
             sentry::ClientOptions {
                 release: sentry::release_name!(),
+                traces_sample_rate: sentry_config.sample_rate.unwrap_or(0.01),
                 ..Default::default()
             },
         )))
@@ -222,6 +230,7 @@ async fn main() -> Result<()> {
         )
         .await;
         if let Err(err) = result {
+            sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(&err));
             tracing::error!(?err, %guild_id, "Error sending up notification");
         }
     }
@@ -254,6 +263,7 @@ async fn handle_event_wrapper(event: Event, state: State) {
     let time = end - start;
 
     if let Err(report) = result {
+        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(&report));
         tracing::error!(result = ?report, event = ?event, "Error handling event");
     }
 
@@ -295,11 +305,12 @@ async fn handle_event_wrapper(event: Event, state: State) {
 
     let result = send_influx_point(&state, &report.into_query("event_report")).await;
     if let Err(err) = result {
+        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(&err));
         tracing::error!("Unable to send Influx report: {:?}", err);
     }
 }
 
-#[tracing::instrument("Handling event", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn handle_event(event: &Event, state: State) -> Result<()> {
     match event {
         Event::MessageCreate(message) => {
@@ -345,7 +356,7 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument("Reloading guild configurations", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Report)> {
     tracing::debug!("Reloading guild configurations");
     let new_guild_configs =
@@ -381,7 +392,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
     Ok(())
 }
 
-#[tracing::instrument("Filtering message", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn filter_message_info<'msg>(
     guild_id: GuildId,
     message_info: &'msg MessageInfo<'_>,
@@ -440,6 +451,9 @@ async fn filter_message_info<'msg>(
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
+                        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(
+                            &action_err,
+                        ));
                         tracing::error!(?action, ?action_err, "Error executing action");
                     }
                 }
@@ -461,7 +475,7 @@ async fn filter_message_info<'msg>(
     Ok(())
 }
 
-#[tracing::instrument("Filtering message", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn filter_message(message: &Message, state: State) -> Result<()> {
     let guild_id = match message.guild_id {
         Some(id) => id,
@@ -473,6 +487,10 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         None => {
             // For non-bot users, this should always be set.
             if !message.author.bot {
+                sentry::capture_message(
+                    "No `member` field attached to non-bot message",
+                    sentry::Level::Error,
+                );
                 tracing::error!(?message.id, "No `member` field attached to message");
             }
 
@@ -495,7 +513,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
     filter_message_info(guild_id, &message_info, &state, "message create").await
 }
 
-#[tracing::instrument("Filtering reaction", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
     if rxn.guild_id.is_none() {
         tracing::trace!("A reaction was added, but no guild ID is present. Ignoring.");
@@ -553,6 +571,9 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
+                        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(
+                            &action_err,
+                        ));
                         tracing::error!(?action_err, ?action, "Error executing reaction action");
                     }
                 }
@@ -571,7 +592,7 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
     Ok(())
 }
 
-#[tracing::instrument("Filtering message edit via HTTP request", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Result<()> {
     let guild_id = match update.guild_id {
         Some(id) => id,
@@ -619,7 +640,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
     filter_message_info(guild_id, &message_info, &state, "message edit").await
 }
 
-#[tracing::instrument("Filtering message edit", skip(state))]
+#[tracing::instrument(skip(state))]
 async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()> {
     let guild_id = match update.guild_id {
         Some(id) => id,
@@ -683,6 +704,7 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
     }
 }
 
+#[tracing::instrument(skip(state))]
 async fn send_notification_to_guild(
     state: &State,
     guild_id: GuildId,

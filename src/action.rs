@@ -31,6 +31,7 @@ pub(crate) enum MessageAction {
 }
 
 impl MessageAction {
+    #[tracing::instrument(skip(http))]
     pub(crate) async fn execute(&self, http: &Client) -> Result<()> {
         match self {
             Self::Delete {
@@ -112,6 +113,7 @@ pub(crate) enum ReactionAction {
 }
 
 impl ReactionAction {
+    #[tracing::instrument(skip(http))]
     pub(crate) async fn execute(&self, http: &Client) -> Result<()> {
         match self {
             Self::Delete {

@@ -324,6 +324,7 @@ pub struct InfluxConfig {
 #[derive(Deserialize, Debug)]
 pub struct SentryConfig {
     pub url: String,
+    pub sample_rate: Option<f32>,
 }
 
 #[derive(Deserialize, Debug)]
