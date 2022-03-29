@@ -64,7 +64,7 @@ impl MessageAction {
                     .field(EmbedFieldBuilder::new("Context", *context).build());
 
                 if content.len() > 0 {
-                    embed_builder = embed_builder.description(content);
+                    embed_builder = embed_builder.description(format!("```{}```", content));
                 }
 
                 http.create_message(*to)

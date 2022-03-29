@@ -132,13 +132,13 @@ mod test {
                         filter_name: "first".to_string(),
                         message: crate::model::test::MESSAGE_ID,
                         channel: crate::model::test::CHANNEL_ID,
-                        filter_reason: "reacted with denied emoji 🍆".to_string(),
+                        filter_reason: "reacted with denied emoji `🍆`".to_string(),
                         author: crate::model::test::USER_ID,
                         reaction: rxn.reaction.clone(),
                     },
                     ReactionAction::SendMessage {
                         to: ChannelId::new(3).unwrap(),
-                        content: "3 reacted with denied emoji 🍆".to_string(),
+                        content: "3 reacted with denied emoji `🍆`".to_string(),
                         requires_armed: false,
                     },
                 ]

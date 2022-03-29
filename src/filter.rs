@@ -229,7 +229,7 @@ impl config::MessageFilterRule {
                     let substring_match = names.captures(name);
                     if let Some(substring_match) = substring_match {
                         return Err(format!(
-                            "contains emoji with denied name substring {}",
+                            "contains emoji with denied name substring `{}`",
                             substring_match.get(0).unwrap().as_str()
                         ));
                     }
@@ -303,14 +303,14 @@ impl config::ReactionFilterRule {
                     match mode {
                         config::FilterMode::AllowList => {
                             if !filtered_emoji.contains(&name) {
-                                Err(format!("reacted with unallowed emoji {}", name))
+                                Err(format!("reacted with unallowed emoji `{}`", name))
                             } else {
                                 Ok(())
                             }
                         }
                         config::FilterMode::DenyList => {
                             if filtered_emoji.contains(&name) {
-                                Err(format!("reacted with denied emoji {}", name))
+                                Err(format!("reacted with denied emoji `{}`", name))
                             } else {
                                 Ok(())
                             }
@@ -328,14 +328,14 @@ impl config::ReactionFilterRule {
                     match mode {
                         config::FilterMode::AllowList => {
                             if !filtered_emoji.contains(&id) {
-                                Err(format!("reacted with unallowed emoji {}", id))
+                                Err(format!("reacted with unallowed emoji `{}`", id))
                             } else {
                                 Ok(())
                             }
                         }
                         config::FilterMode::DenyList => {
                             if filtered_emoji.contains(&id) {
-                                Err(format!("reacted with denied emoji {}", id))
+                                Err(format!("reacted with denied emoji `{}`", id))
                             } else {
                                 Ok(())
                             }
@@ -351,7 +351,7 @@ impl config::ReactionFilterRule {
                 } = reaction
                 {
                     if names.is_match(&name) {
-                        Err(format!("reacted with denied emoji name {}", name))
+                        Err(format!("reacted with denied emoji name `{}`", name))
                     } else {
                         Ok(())
                     }
