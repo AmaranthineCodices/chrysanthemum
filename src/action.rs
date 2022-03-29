@@ -52,25 +52,23 @@ impl MessageAction {
                 author,
                 context,
             } => {
-                http.create_message(*to)
-                    .embeds(&[EmbedBuilder::new()
-                        .title("Message filtered")
-                        .field(EmbedFieldBuilder::new("Filter", filter_name))
-                        .field(
-                            EmbedFieldBuilder::new("Author", author.mention().to_string()).build(),
-                        )
-                        .field(
-                            EmbedFieldBuilder::new(
-                                "Channel",
-                                message_channel.mention().to_string(),
-                            )
+                let mut embed_builder = EmbedBuilder::new()
+                    .title("Message filtered")
+                    .field(EmbedFieldBuilder::new("Filter", filter_name))
+                    .field(EmbedFieldBuilder::new("Author", author.mention().to_string()).build())
+                    .field(
+                        EmbedFieldBuilder::new("Channel", message_channel.mention().to_string())
                             .build(),
-                        )
-                        .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
-                        .field(EmbedFieldBuilder::new("Context", *context).build())
-                        .description(content)
-                        .build()
-                        .unwrap()])
+                    )
+                    .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
+                    .field(EmbedFieldBuilder::new("Context", *context).build());
+
+                if content.len() > 0 {
+                    embed_builder = embed_builder.description(content);
+                }
+
+                http.create_message(*to)
+                    .embeds(&[embed_builder.build().unwrap()])
                     .unwrap()
                     .exec()
                     .await?;
