@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "chrysanthemum"
-version = "0.2.16"
+version = "0.2.17"
 dependencies = [
  "chrono",
  "color-eyre",
@@ -172,6 +172,7 @@ dependencies = [
  "regex",
  "reqwest",
  "sentry",
+ "sentry-tracing",
  "serde",
  "serde_regex",
  "serde_yaml",
@@ -1436,6 +1437,17 @@ checksum = "b957b1965c450acd220a27806fe1f2dec998d393973ebae797936b12df1c7416"
 dependencies = [
  "sentry-backtrace",
  "sentry-core",
+]
+
+[[package]]
+name = "sentry-tracing"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a1b281efe225a8750e2011a325a5455b29a3e5cd40762337ef647a253e3213f"
+dependencies = [
+ "sentry-core",
+ "tracing-core",
+ "tracing-subscriber 0.3.9",
 ]
 
 [[package]]

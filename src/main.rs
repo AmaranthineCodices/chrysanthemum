@@ -100,16 +100,11 @@ fn init_tracing() {
 
 #[cfg(not(debug_assertions))]
 fn init_tracing() {
-    let subscriber = tracing_subscriber::fmt()
-        .json()
-        .with_thread_ids(true)
-        .with_thread_names(true)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .finish();
+    use tracing_subscriber::prelude::*;
 
-    tracing_subscriber::Registry::default()
-        .with(subscriber)
-        .with(sentry::integrations::tracing::layer())
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().json())
+        .with(sentry_tracing::layer())
         .init();
 }
 
