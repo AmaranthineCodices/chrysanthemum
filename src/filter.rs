@@ -78,28 +78,24 @@ where
 
 impl config::Scoping {
     pub fn is_included(&self, channel: Id<ChannelMarker>, author_roles: &[Id<RoleMarker>]) -> bool {
-        if self.include_channels.is_some() {
-            if self
-                .include_channels
-                .as_ref()
-                .unwrap()
-                .iter()
-                .all(|c| *c != channel)
-            {
-                return false;
-            }
+        if self.include_channels.is_some() && self
+            .include_channels
+            .as_ref()
+            .unwrap()
+            .iter()
+            .all(|c| *c != channel)
+        {
+            return false;
         }
 
-        if self.exclude_channels.is_some() {
-            if self
-                .exclude_channels
-                .as_ref()
-                .unwrap()
-                .iter()
-                .any(|c| *c == channel)
-            {
-                return false;
-            }
+        if self.exclude_channels.is_some() && self
+            .exclude_channels
+            .as_ref()
+            .unwrap()
+            .iter()
+            .any(|c| *c == channel)
+        {
+            return false;
         }
 
         if self.exclude_roles.is_some() {
@@ -110,7 +106,7 @@ impl config::Scoping {
             }
         }
 
-        return true;
+        true
     }
 }
 
@@ -118,7 +114,7 @@ impl config::MessageFilter {
     pub(crate) fn filter_message(&self, message: &MessageInfo<'_>) -> FilterResult {
         self.rules
             .iter()
-            .map(|f| f.filter_message(&message))
+            .map(|f| f.filter_message(message))
             .find(|r| r.is_err())
             .unwrap_or(Ok(()))
     }
@@ -145,7 +141,7 @@ impl config::MessageFilterRule {
                         "contains word `{}`",
                         captures.get(1).unwrap().as_str()
                     ))
-                } else if let Some(captures) = words.captures(&text) {
+                } else if let Some(captures) = words.captures(text) {
                     Err(format!(
                         "contains word `{}`",
                         captures.get(1).unwrap().as_str()
@@ -164,7 +160,7 @@ impl config::MessageFilterRule {
                         "contains substring `{}`",
                         captures.get(0).unwrap().as_str()
                     ))
-                } else if let Some(captures) = substrings.captures(&text) {
+                } else if let Some(captures) = substrings.captures(text) {
                     Err(format!(
                         "contains substring `{}`",
                         captures.get(0).unwrap().as_str()
@@ -270,7 +266,7 @@ impl config::MessageFilterRule {
             ),
             config::MessageFilterRule::StickerName { stickers } => {
                 for sticker in message.stickers.iter() {
-                    let substring_match = stickers.captures_iter(&sticker.name).nth(0);
+                    let substring_match = stickers.captures_iter(&sticker.name).next();
                     if let Some(substring_match) = substring_match {
                         return Err(format!(
                             "contains sticker with denied name substring `{}`",
@@ -281,7 +277,7 @@ impl config::MessageFilterRule {
 
                 Ok(())
             }
-            _ => self.filter_text(&message.content),
+            _ => self.filter_text(message.content),
         }
     }
 }
@@ -290,7 +286,7 @@ impl config::ReactionFilter {
     pub fn filter_reaction(&self, reaction: &ReactionType) -> FilterResult {
         self.rules
             .iter()
-            .map(|f| f.filter_reaction(&reaction))
+            .map(|f| f.filter_reaction(reaction))
             .find(|r| r.is_err())
             .unwrap_or(Ok(()))
     }
@@ -306,14 +302,14 @@ impl config::ReactionFilterRule {
                 if let ReactionType::Unicode { name } = reaction {
                     match mode {
                         config::FilterMode::AllowList => {
-                            if !filtered_emoji.contains(&name) {
+                            if !filtered_emoji.contains(name) {
                                 Err(format!("reacted with unallowed emoji `{}`", name))
                             } else {
                                 Ok(())
                             }
                         }
                         config::FilterMode::DenyList => {
-                            if filtered_emoji.contains(&name) {
+                            if filtered_emoji.contains(name) {
                                 Err(format!("reacted with denied emoji `{}`", name))
                             } else {
                                 Ok(())
@@ -331,14 +327,14 @@ impl config::ReactionFilterRule {
                 if let ReactionType::Custom { id, .. } = reaction {
                     match mode {
                         config::FilterMode::AllowList => {
-                            if !filtered_emoji.contains(&id) {
+                            if !filtered_emoji.contains(id) {
                                 Err(format!("reacted with unallowed emoji `{}`", id))
                             } else {
                                 Ok(())
                             }
                         }
                         config::FilterMode::DenyList => {
-                            if filtered_emoji.contains(&id) {
+                            if filtered_emoji.contains(id) {
                                 Err(format!("reacted with denied emoji `{}`", id))
                             } else {
                                 Ok(())
@@ -354,7 +350,7 @@ impl config::ReactionFilterRule {
                     name: Some(name), ..
                 } = reaction
                 {
-                    if names.is_match(&name) {
+                    if names.is_match(name) {
                         Err(format!("reacted with denied emoji name `{}`", name))
                     } else {
                         Ok(())
@@ -380,10 +376,10 @@ pub struct SpamRecord {
 
 impl SpamRecord {
     pub(crate) fn from_message(message: &MessageInfo) -> SpamRecord {
-        let spoilers = spoiler_regex().find_iter(&message.content).count();
-        let emoji = emoji_regex().find_iter(&message.content).count();
-        let links = link_regex().find_iter(&message.content).count();
-        let mentions = mention_regex().find_iter(&message.content).count();
+        let spoilers = spoiler_regex().find_iter(message.content).count();
+        let emoji = emoji_regex().find_iter(message.content).count();
+        let links = link_regex().find_iter(message.content).count();
+        let mentions = mention_regex().find_iter(message.content).count();
 
         SpamRecord {
             // Unfortunately, this clone is necessary, because `message` will be
@@ -486,7 +482,7 @@ pub(crate) async fn check_spam_record(
     spam_history: Arc<RwLock<SpamHistory>>,
     now: u64,
 ) -> FilterResult {
-    let new_spam_record = SpamRecord::from_message(&message);
+    let new_spam_record = SpamRecord::from_message(message);
     let author_spam_history = {
         let read_history = spam_history.read().await;
         // This is tricky: We need to release the read lock, acquire a write lock, and
@@ -506,23 +502,18 @@ pub(crate) async fn check_spam_record(
     let mut spam_history = author_spam_history.lock().unwrap();
 
     let mut cleared_count = 0;
-    loop {
-        match spam_history.front() {
-            Some(front) => {
-                if now.saturating_sub(
-                    front
-                        .sent_at
-                        .try_into()
-                        .expect("Couldn't convert i64 to u64"),
-                ) > (config.interval as u64) * 1_000_000
-                {
-                    spam_history.pop_front();
-                    cleared_count += 1;
-                } else {
-                    break;
-                }
-            }
-            None => break,
+    while let Some(front) = spam_history.front() {
+        if now.saturating_sub(
+            front
+                .sent_at
+                .try_into()
+                .expect("Couldn't convert i64 to u64"),
+        ) > (config.interval as u64) * 1_000_000
+        {
+            spam_history.pop_front();
+            cleared_count += 1;
+        } else {
+            break;
         }
     }
 
@@ -532,7 +523,7 @@ pub(crate) async fn check_spam_record(
         message.author_id
     );
 
-    let result = exceeds_spam_thresholds(&spam_history, &new_spam_record, &config);
+    let result = exceeds_spam_thresholds(&spam_history, &new_spam_record, config);
     spam_history.push_back(new_spam_record);
     result
 }

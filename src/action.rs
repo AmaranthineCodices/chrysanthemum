@@ -66,7 +66,7 @@ impl MessageAction {
                     .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
                     .field(EmbedFieldBuilder::new("Context", *context).build());
 
-                if content.len() > 0 {
+                if !content.is_empty() {
                     embed_builder = embed_builder.description(format!("```{}```", content));
                 }
 
@@ -127,7 +127,7 @@ impl ReactionAction {
                         id: *id,
                         name: name.as_deref(),
                     },
-                    ReactionType::Unicode { name } => RequestReactionType::Unicode { name: &name },
+                    ReactionType::Unicode { name } => RequestReactionType::Unicode { name },
                 };
 
                 http.delete_all_reaction(*channel_id, *message_id, &request_emoji)
@@ -167,8 +167,8 @@ impl ReactionAction {
                                 "Message",
                                 format!(
                                     "https://discordapp.com/{}/{}",
-                                    channel.to_string(),
-                                    message.to_string()
+                                    channel,
+                                    message
                                 ),
                             )
                             .build(),
@@ -187,8 +187,8 @@ impl ReactionAction {
 
     pub(crate) fn requires_armed(&self) -> bool {
         match self {
-            &ReactionAction::Delete { .. } => true,
-            &ReactionAction::SendMessage { requires_armed, .. } => requires_armed,
+            ReactionAction::Delete { .. } => true,
+            ReactionAction::SendMessage { requires_armed, .. } => *requires_armed,
             _ => false,
         }
     }

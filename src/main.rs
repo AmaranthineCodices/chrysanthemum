@@ -154,18 +154,14 @@ async fn main() -> Result<()> {
     let cfg_json = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg: Config = serde_yaml::from_str(&cfg_json).expect("Couldn't deserialize config");
 
-    let _sentry_guard = if let Some(sentry_config) = &cfg.sentry {
-        Some(sentry::init((
-            sentry_config.url.clone(),
+    let _sentry_guard = cfg.sentry.as_ref().map(|sentry_config| sentry::init((
+        sentry_config.url.clone(),
             sentry::ClientOptions {
                 release: sentry::release_name!(),
                 traces_sample_rate: sentry_config.sample_rate.unwrap_or(0.01),
                 ..Default::default()
             },
-        )))
-    } else {
-        None
-    };
+    )));
 
     let influx_client = if let Some(influx_cfg) = &cfg.influx {
         let mut headers = reqwest::header::HeaderMap::new();
@@ -342,11 +338,8 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
         }
         Event::InteractionCreate(interaction) => {
             let interaction = &interaction.0;
-            match interaction {
-                Interaction::ApplicationCommand(cmd) => {
-                    command::handle_command(state.clone(), cmd.as_ref()).await?;
-                }
-                _ => {}
+            if let Interaction::ApplicationCommand(cmd) = interaction {
+                command::handle_command(state.clone(), cmd.as_ref()).await?;
             }
         }
         _ => {}
@@ -433,18 +426,16 @@ async fn filter_message_info<'msg>(
 
                 for action in failure.actions {
                     tracing::trace!(?action, "Executing action");
-                    match action {
-                        // We only want to execute Delete actions once per message,
-                        // since we'll get a 404 on subsequent requests.
-                        MessageAction::Delete { .. } => {
-                            if deleted {
-                                tracing::trace!(?action, "Skipping duplicate delete action");
-                                continue;
-                            }
 
-                            deleted = true;
+                    // We only want to execute Delete actions once per message,
+                    // since we'll get a 404 on subsequent requests.
+                    if let MessageAction::Delete { .. } = action {
+                        if deleted {
+                            tracing::trace!(?action, "Skipping duplicate delete action");
+                            continue;
                         }
-                        _ => {}
+
+                        deleted = true;
                     }
 
                     if action.requires_armed() && !armed {
@@ -465,7 +456,7 @@ async fn filter_message_info<'msg>(
                     channel: message_info.channel_id.to_string(),
                 };
 
-                send_influx_point(&state, &report.into_query(context)).await?;
+                send_influx_point(state, &report.into_query(context)).await?;
                 tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, "Influx point sent");
             }
         }
@@ -546,7 +537,7 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
             };
 
             let filter_result = crate::reaction::filter_reaction(
-                &reaction_filters,
+                reaction_filters,
                 guild_config.default_scoping.as_ref(),
                 guild_config.default_actions.as_deref(),
                 &reaction_info,
@@ -615,9 +606,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
                 .model()
                 .await?
                 .roles
-                .iter()
-                .map(|r| *r)
-                .collect::<Vec<_>>(),
+                .clone(),
         }
     };
 
@@ -633,7 +622,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         stickers: &http_message.sticker_items,
     };
 
-    filter_message_info(guild_id, &message_info, &state, "message edit").await
+    filter_message_info(guild_id, &message_info, state, "message edit").await
 }
 
 #[tracing::instrument(skip(state))]

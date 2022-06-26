@@ -9,7 +9,7 @@ use crate::{
     model::MessageInfo,
 };
 
-const SPAM_FILTER_NAME: &'static str = "Spam";
+const SPAM_FILTER_NAME: &str = "Spam";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MessageFilterFailure {
@@ -20,8 +20,8 @@ pub(crate) struct MessageFilterFailure {
 
 fn format_message_preview(format_string: String, content: &str) -> String {
     const MAX_CHARS: usize = 2_000;
-    const MESSAGE_PREVIEW: &'static str = "$MESSAGE_PREVIEW";
-    const ELLIPSIS: &'static str = "…";
+    const MESSAGE_PREVIEW: &str = "$MESSAGE_PREVIEW";
+    const ELLIPSIS: &str = "…";
 
     if format_string.contains(MESSAGE_PREVIEW) {
         let available_length = MAX_CHARS - format_string.len() - MESSAGE_PREVIEW.len();
@@ -72,9 +72,9 @@ fn map_filter_action_to_action(
             requires_armed,
         } => {
             let formatted_content = content.replace("$USER_ID", &message.author_id.to_string());
-            let formatted_content = formatted_content.replace("$FILTER_REASON", &filter_reason);
+            let formatted_content = formatted_content.replace("$FILTER_REASON", filter_reason);
 
-            let formatted_content = format_message_preview(formatted_content, &message.content);
+            let formatted_content = format_message_preview(formatted_content, message.content);
 
             MessageAction::SendMessage {
                 to: *channel_id,
@@ -147,7 +147,7 @@ async fn spam_check_message<'msg>(
         }
     }
 
-    let result = check_spam_record(&message, &spam_config, spam_history, now).await;
+    let result = check_spam_record(message, spam_config, spam_history, now).await;
 
     match result {
         Ok(()) => Ok(()),
@@ -159,7 +159,7 @@ async fn spam_check_message<'msg>(
                 .unwrap_or(&[])
                 .iter()
                 .map(|a| {
-                    map_filter_action_to_action(a, message, &SPAM_FILTER_NAME, &reason, context)
+                    map_filter_action_to_action(a, message, SPAM_FILTER_NAME, &reason, context)
                 })
                 .collect();
             Err(MessageFilterFailure {
@@ -171,6 +171,7 @@ async fn spam_check_message<'msg>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip(spam_config, filters, default_scoping, default_actions, spam_history))]
 pub(crate) async fn filter_and_spam_check_message<'msg>(
     spam_config: Option<&'msg SpamFilter>,

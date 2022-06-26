@@ -196,7 +196,7 @@ pub(crate) async fn update_guild_commands(
         )),
         // Need to delete the commands.
         (Some(_), None, Some(command_state)) => {
-            for (_kind, id) in &command_state.cmds {
+            for id in command_state.cmds.values() {
                 http.delete_guild_command(guild_id, *id).exec().await?;
             }
 
@@ -240,7 +240,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
         }
     };
 
-    if let None = cmd_kind {
+    if cmd_kind.is_none() {
         tracing::trace!(?state.cmd_states, ?cmd.data.id, "Couldn't find command kind for command invocation");
         return Ok(());
     }
@@ -249,7 +249,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
 
     match cmd_kind.unwrap() {
         CommandKind::Test => {
-            if cmd.data.options.len() <= 0 {
+            if cmd.data.options.is_empty() {
                 return Ok(());
             }
 

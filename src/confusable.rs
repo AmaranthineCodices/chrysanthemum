@@ -14,7 +14,7 @@ fn confusables() -> &'static HashMap<char, String> {
                 continue;
             }
 
-            if !line.contains(";") {
+            if !line.contains(';') {
                 continue;
             }
 
