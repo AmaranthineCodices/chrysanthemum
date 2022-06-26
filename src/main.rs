@@ -154,14 +154,16 @@ async fn main() -> Result<()> {
     let cfg_json = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg: Config = serde_yaml::from_str(&cfg_json).expect("Couldn't deserialize config");
 
-    let _sentry_guard = cfg.sentry.as_ref().map(|sentry_config| sentry::init((
-        sentry_config.url.clone(),
+    let _sentry_guard = cfg.sentry.as_ref().map(|sentry_config| {
+        sentry::init((
+            sentry_config.url.clone(),
             sentry::ClientOptions {
                 release: sentry::release_name!(),
                 traces_sample_rate: sentry_config.sample_rate.unwrap_or(0.01),
                 ..Default::default()
             },
-    )));
+        ))
+    });
 
     let influx_client = if let Some(influx_cfg) = &cfg.influx {
         let mut headers = reqwest::header::HeaderMap::new();
@@ -180,8 +182,10 @@ async fn main() -> Result<()> {
         None
     };
 
-    let intents =
-        Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS | Intents::MESSAGE_CONTENT;
+    let intents = Intents::GUILD_MESSAGES
+        | Intents::GUILD_MEMBERS
+        | Intents::GUILD_MESSAGE_REACTIONS
+        | Intents::MESSAGE_CONTENT;
 
     let (shard, mut events) = Shard::builder(discord_token.clone(), intents)
         .build()

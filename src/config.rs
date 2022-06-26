@@ -437,7 +437,10 @@ pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
     if let Some(notifications) = &guild.notifications {
         if let Some(roles) = &notifications.ping_roles {
             if roles.is_empty() {
-                errors.push("notification settings, ping_roles is specified but is empty; omit the key.".to_string());
+                errors.push(
+                    "notification settings, ping_roles is specified but is empty; omit the key."
+                        .to_string(),
+                );
             }
         }
     }
@@ -515,7 +518,9 @@ pub fn validate_guild_config(guild: &GuildConfig) -> Result<(), Vec<String>> {
     if let Some(reactions) = &guild.reactions {
         if reactions.is_empty() {
             errors.push(
-                "reactions is specified but is empty; omit the key to disable reaction filtering".to_string());
+                "reactions is specified but is empty; omit the key to disable reaction filtering"
+                    .to_string(),
+            );
         }
 
         for (i, filter) in reactions.iter().enumerate() {

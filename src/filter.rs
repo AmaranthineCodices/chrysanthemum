@@ -78,22 +78,24 @@ where
 
 impl config::Scoping {
     pub fn is_included(&self, channel: Id<ChannelMarker>, author_roles: &[Id<RoleMarker>]) -> bool {
-        if self.include_channels.is_some() && self
-            .include_channels
-            .as_ref()
-            .unwrap()
-            .iter()
-            .all(|c| *c != channel)
+        if self.include_channels.is_some()
+            && self
+                .include_channels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .all(|c| *c != channel)
         {
             return false;
         }
 
-        if self.exclude_channels.is_some() && self
-            .exclude_channels
-            .as_ref()
-            .unwrap()
-            .iter()
-            .any(|c| *c == channel)
+        if self.exclude_channels.is_some()
+            && self
+                .exclude_channels
+                .as_ref()
+                .unwrap()
+                .iter()
+                .any(|c| *c == channel)
         {
             return false;
         }

@@ -165,11 +165,7 @@ impl ReactionAction {
                         .field(
                             EmbedFieldBuilder::new(
                                 "Message",
-                                format!(
-                                    "https://discordapp.com/{}/{}",
-                                    channel,
-                                    message
-                                ),
+                                format!("https://discordapp.com/{}/{}", channel, message),
                             )
                             .build(),
                         )
