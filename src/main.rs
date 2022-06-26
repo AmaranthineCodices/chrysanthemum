@@ -185,7 +185,7 @@ async fn main() -> Result<()> {
     };
 
     let intents =
-        Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
+        Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS | Intents::MESSAGE_CONTENT;
 
     let (shard, mut events) = Shard::builder(discord_token.clone(), intents)
         .build()
