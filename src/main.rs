@@ -228,7 +228,6 @@ async fn main() -> Result<()> {
         )
         .await;
         if let Err(err) = result {
-            sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(&err));
             tracing::error!(?err, %guild_id, "Error sending up notification");
         }
     }
@@ -261,7 +260,6 @@ async fn handle_event_wrapper(event: Event, state: State) {
     let time = end - start;
 
     if let Err(report) = result {
-        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(&report));
         tracing::error!(result = ?report, event = ?event, "Error handling event");
     }
 
@@ -303,7 +301,6 @@ async fn handle_event_wrapper(event: Event, state: State) {
 
     let result = send_influx_point(&state, &report.into_query("event_report")).await;
     if let Err(err) = result {
-        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(&err));
         tracing::error!("Unable to send Influx report: {:?}", err);
     }
 }
@@ -456,9 +453,6 @@ async fn filter_message_info<'msg>(
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
-                        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(
-                            &action_err,
-                        ));
                         tracing::error!(?action, ?action_err, "Error executing action");
                     }
                 }
@@ -576,9 +570,6 @@ async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
-                        sentry::capture_error(&<Report as AsRef<(dyn Error + 'static)>>::as_ref(
-                            &action_err,
-                        ));
                         tracing::error!(?action_err, ?action, "Error executing reaction action");
                     }
                 }
