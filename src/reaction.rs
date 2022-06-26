@@ -85,7 +85,7 @@ pub(crate) fn filter_reaction(
 #[cfg(test)]
 mod test {
     use pretty_assertions::assert_eq;
-    use twilight_model::id::ChannelId;
+    use twilight_model::id::Id;
 
     use crate::{
         action::ReactionAction,
@@ -105,10 +105,10 @@ mod test {
             actions: Some(vec![
                 MessageFilterAction::Delete,
                 MessageFilterAction::SendLog {
-                    channel_id: ChannelId::new(3).unwrap(),
+                    channel_id: Id::new(3),
                 },
                 MessageFilterAction::SendMessage {
-                    channel_id: ChannelId::new(3).unwrap(),
+                    channel_id: Id::new(3),
                     content: "$USER_ID $FILTER_REASON".to_string(),
                     requires_armed: false,
                 },
@@ -128,7 +128,7 @@ mod test {
                         reaction: rxn.reaction.clone(),
                     },
                     ReactionAction::SendLog {
-                        to: ChannelId::new(3).unwrap(),
+                        to: Id::new(3),
                         filter_name: "first".to_string(),
                         message: crate::model::test::MESSAGE_ID,
                         channel: crate::model::test::CHANNEL_ID,
@@ -137,7 +137,7 @@ mod test {
                         reaction: rxn.reaction.clone(),
                     },
                     ReactionAction::SendMessage {
-                        to: ChannelId::new(3).unwrap(),
+                        to: Id::new(3),
                         content: "3 reacted with denied emoji `🍆`".to_string(),
                         requires_armed: false,
                     },
@@ -245,7 +245,7 @@ mod test {
         }];
 
         let default_actions = vec![MessageFilterAction::SendLog {
-            channel_id: ChannelId::new(2).unwrap(),
+            channel_id: Id::new(2),
         }];
 
         let rxn = crate::model::test::default_reaction("🍆");

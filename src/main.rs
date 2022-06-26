@@ -19,7 +19,6 @@ use futures::stream::StreamExt;
 use tracing::Instrument;
 
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
-use twilight_embed_builder::{EmbedBuilder, EmbedFieldBuilder};
 use twilight_gateway::Event;
 use twilight_gateway::Shard;
 use twilight_http::Client as HttpClient;
@@ -28,12 +27,14 @@ use twilight_model::application::interaction::Interaction;
 use twilight_model::channel::{Message, Reaction};
 use twilight_model::gateway::payload::incoming::MessageUpdate;
 use twilight_model::gateway::Intents;
-use twilight_model::id::GuildId;
+use twilight_model::id::marker::ApplicationMarker;
+use twilight_model::id::{Id, marker::GuildMarker};
 
 use color_eyre::eyre::Result;
 
 use config::*;
 use model::{MessageInfo, ReactionInfo};
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
 mod action;
 mod command;
@@ -49,11 +50,12 @@ const DEFAULT_RELOAD_INTERVAL: u64 = 5 * 60;
 #[derive(Clone, Debug)]
 struct State {
     cfg: Arc<Config>,
-    guild_cfgs: Arc<RwLock<HashMap<GuildId, GuildConfig>>>,
+    guild_cfgs: Arc<RwLock<HashMap<Id<GuildMarker>, GuildConfig>>>,
     http: Arc<HttpClient>,
+    application_id: Arc<RwLock<Option<Id<ApplicationMarker>>>>,
     cache: Arc<InMemoryCache>,
     spam_history: Arc<RwLock<SpamHistory>>,
-    cmd_states: Arc<RwLock<HashMap<GuildId, Option<CommandState>>>>,
+    cmd_states: Arc<RwLock<HashMap<Id<GuildMarker>, Option<CommandState>>>>,
     influx_client: Arc<Option<influxdb::Client>>,
     influx_report_count: Arc<AtomicUsize>,
     armed: Arc<AtomicBool>,
@@ -187,7 +189,7 @@ async fn main() -> Result<()> {
     let intents =
         Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
 
-    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
+    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build().await?;
     shard.start().await?;
 
     let http = Arc::new(HttpClient::new(discord_token));
@@ -208,6 +210,7 @@ async fn main() -> Result<()> {
         spam_history,
         cfg,
         cache: Arc::new(cache),
+        application_id: Arc::new(RwLock::new(None)),
         guild_cfgs: Arc::new(RwLock::new(initial_guild_configs)),
         cmd_states: Arc::new(RwLock::new(cmd_ids)),
         influx_client: Arc::new(influx_client),
@@ -320,13 +323,17 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
             filter_reaction(rxn, state).await?;
         }
         Event::Ready(ready) => {
-            state.http.set_application_id(ready.application.id);
+            {
+                *state.application_id.write().await = Some(ready.application.id);
+            }
+
+            let interaction_http = state.http.interaction(ready.application.id);
             let guild_cfgs = state.guild_cfgs.read().await;
             let mut cmd_states = state.cmd_states.write().await;
 
             for (guild_id, guild_config) in guild_cfgs.iter() {
                 let cmd_state = command::update_guild_commands(
-                    &state.http,
+                    &interaction_http,
                     *guild_id,
                     None,
                     guild_config.slash_commands.as_ref(),
@@ -352,16 +359,19 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
 }
 
 #[tracing::instrument(skip(state))]
-async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Report)> {
+async fn reload_guild_configs(state: &State) -> Result<(), (Id<GuildMarker>, eyre::Report)> {
     tracing::debug!("Reloading guild configurations");
     let new_guild_configs =
         crate::config::load_guild_configs(&state.cfg.guild_config_dir, &state.cfg.active_guilds)?;
     let mut command_states = state.cmd_states.write().await;
     let mut guild_cfgs = state.guild_cfgs.write().await;
+    let application_id = *state.application_id.read().await;
 
     // We can't interact with commands until we have an application ID from the
     // gateway. Don't try if we don't have one yet.
-    if state.http.application_id().is_some() {
+    if let Some(application_id) = application_id {
+        let interaction_http = state.http.interaction(application_id);
+
         for (guild_id, new_guild_config) in &new_guild_configs {
             tracing::trace!(%guild_id, "Updating guild commands");
             // We should always have an old guild config when this method is invoked,
@@ -370,7 +380,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
             let command_state = command_states.remove(guild_id).unwrap_or(None);
 
             let new_command_state = command::update_guild_commands(
-                &state.http,
+                &interaction_http,
                 *guild_id,
                 old_guild_config.slash_commands.as_ref(),
                 new_guild_config.slash_commands.as_ref(),
@@ -389,7 +399,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (GuildId, eyre::Repor
 
 #[tracing::instrument(skip(state))]
 async fn filter_message_info<'msg>(
-    guild_id: GuildId,
+    guild_id: Id<GuildMarker>,
     message_info: &'msg MessageInfo<'_>,
     state: &'msg State,
     context: &'static str,
@@ -702,7 +712,7 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
 #[tracing::instrument(skip(state))]
 async fn send_notification_to_guild(
     state: &State,
-    guild_id: GuildId,
+    guild_id: Id<GuildMarker>,
     title: &str,
     body: &str,
 ) -> Result<()> {
@@ -724,7 +734,7 @@ async fn send_notification_to_guild(
             state
                 .http
                 .create_message(notification_config.channel)
-                .embeds(&[builder.build()?])?
+                .embeds(&[builder.build()])?
                 .exec()
                 .await?;
         }

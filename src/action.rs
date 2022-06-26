@@ -1,31 +1,31 @@
-use twilight_embed_builder::{EmbedBuilder, EmbedFieldBuilder};
-use twilight_http::{request::prelude::RequestReactionType, Client};
+use twilight_http::{Client, request::channel::reaction::RequestReactionType};
 use twilight_mention::Mention;
 use twilight_model::{
     channel::ReactionType,
-    id::{ChannelId, MessageId, UserId},
+    id::{Id, marker::{ChannelMarker, MessageMarker, UserMarker}},
 };
+use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
 use eyre::Result;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum MessageAction {
     Delete {
-        message_id: MessageId,
-        channel_id: ChannelId,
+        message_id: Id<MessageMarker>,
+        channel_id: Id<ChannelMarker>,
     },
     SendMessage {
-        to: ChannelId,
+        to: Id<ChannelMarker>,
         content: String,
         requires_armed: bool,
     },
     SendLog {
-        to: ChannelId,
+        to: Id<ChannelMarker>,
         filter_name: String,
-        message_channel: ChannelId,
+        message_channel: Id<ChannelMarker>,
         content: String,
         filter_reason: String,
-        author: UserId,
+        author: Id<UserMarker>,
         context: &'static str,
     },
 }
@@ -68,7 +68,7 @@ impl MessageAction {
                 }
 
                 http.create_message(*to)
-                    .embeds(&[embed_builder.build().unwrap()])
+                    .embeds(&[embed_builder.build()])
                     .unwrap()
                     .exec()
                     .await?;
@@ -90,22 +90,22 @@ impl MessageAction {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ReactionAction {
     Delete {
-        message_id: MessageId,
-        channel_id: ChannelId,
+        message_id: Id<MessageMarker>,
+        channel_id: Id<ChannelMarker>,
         reaction: ReactionType,
     },
     SendMessage {
-        to: ChannelId,
+        to: Id<ChannelMarker>,
         content: String,
         requires_armed: bool,
     },
     SendLog {
-        to: ChannelId,
+        to: Id<ChannelMarker>,
         filter_name: String,
-        message: MessageId,
-        channel: ChannelId,
+        message: Id<MessageMarker>,
+        channel: Id<ChannelMarker>,
         filter_reason: String,
-        author: UserId,
+        author: Id<UserMarker>,
         reaction: ReactionType,
     },
 }
@@ -172,8 +172,7 @@ impl ReactionAction {
                         )
                         .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
                         .field(EmbedFieldBuilder::new("Reaction", rxn_string).build())
-                        .build()
-                        .unwrap()])
+                        .build()])
                     .unwrap()
                     .exec()
                     .await?;

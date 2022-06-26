@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
 use color_eyre::eyre::Result;
-use twilight_embed_builder::{EmbedBuilder, EmbedFieldBuilder};
-use twilight_http::Client;
+use twilight_http::client::InteractionClient;
 use twilight_model::{
     application::{
-        callback::InteractionResponse,
         command::{
             permissions::{CommandPermissions, CommandPermissionsType},
             ChoiceCommandOptionData, CommandOption,
@@ -13,9 +11,17 @@ use twilight_model::{
         interaction::{application_command::CommandOptionValue, ApplicationCommand},
     },
     channel::message::MessageFlags,
-    id::{CommandId, GuildId},
+    guild::Permissions,
+    http::interaction::{InteractionResponse, InteractionResponseType},
+    id::{
+        marker::{CommandMarker, GuildMarker},
+        Id,
+    },
 };
-use twilight_util::builder::CallbackDataBuilder;
+use twilight_util::builder::{
+    embed::{EmbedBuilder, EmbedFieldBuilder},
+    InteractionResponseDataBuilder,
+};
 
 use crate::config::{SlashCommand, SlashCommands};
 
@@ -40,11 +46,11 @@ impl CommandKind {
 
 #[derive(Debug, Clone)]
 pub(crate) struct CommandState {
-    cmds: HashMap<CommandKind, CommandId>,
+    cmds: HashMap<CommandKind, Id<CommandMarker>>,
 }
 
 impl CommandState {
-    fn get_command_kind(&self, id: CommandId) -> Option<CommandKind> {
+    fn get_command_kind(&self, id: Id<CommandMarker>) -> Option<CommandKind> {
         for (kind, kind_id) in &self.cmds {
             if id == *kind_id {
                 return Some(*kind);
@@ -57,9 +63,9 @@ impl CommandState {
 
 #[tracing::instrument(skip(http, command_config))]
 async fn update_command_permission(
-    http: &Client,
-    guild_id: GuildId,
-    command_id: CommandId,
+    http: &InteractionClient<'_>,
+    guild_id: Id<GuildMarker>,
+    command_id: Id<CommandMarker>,
     command_config: &SlashCommand,
 ) -> Result<()> {
     let permissions: Vec<_> = command_config
@@ -83,20 +89,24 @@ async fn update_command_permission(
 
 #[tracing::instrument(skip(http, command_config))]
 pub(crate) async fn create_commands_for_guild(
-    http: &Client,
-    guild_id: GuildId,
+    http: &InteractionClient<'_>,
+    guild_id: Id<GuildMarker>,
     command_config: &SlashCommands,
 ) -> Result<CommandState> {
     let test_cmd = http
-        .create_guild_command(guild_id, "chrysanthemum-test")?
-        .chat_input("Test a message against Chrysanthemum's filter.")?
-        .default_permission(false)
+        .create_guild_command(guild_id)
+        .chat_input(
+            "chrysanthemum-test",
+            "Test a message against Chrysanthemum's filter.",
+        )?
+        .default_member_permissions(Permissions::ADMINISTRATOR)
         .command_options(&[CommandOption::String(ChoiceCommandOptionData {
             autocomplete: false,
             name: "message".to_owned(),
             description: "The message to test.".to_owned(),
             required: true,
             choices: vec![],
+            ..Default::default()
         })])?
         .exec()
         .await?
@@ -104,27 +114,30 @@ pub(crate) async fn create_commands_for_guild(
         .await?;
 
     let arm_cmd = http
-        .create_guild_command(guild_id, "chrysanthemum-arm")?
-        .chat_input("Arms Chrysanthemum.")?
-        .default_permission(false)
+        .create_guild_command(guild_id)
+        .chat_input("chrysanthemum-arm", "Arms Chrysanthemum.")?
+        .default_member_permissions(Permissions::ADMINISTRATOR)
         .exec()
         .await?
         .model()
         .await?;
 
     let disarm_cmd = http
-        .create_guild_command(guild_id, "chrysanthemum-disarm")?
-        .chat_input("Disarms Chrysanthemum.")?
-        .default_permission(false)
+        .create_guild_command(guild_id)
+        .chat_input("chrysanthemum-disarm", "Disarms Chrysanthemum.")?
+        .default_member_permissions(Permissions::ADMINISTRATOR)
         .exec()
         .await?
         .model()
         .await?;
 
     let reload_cmd = http
-        .create_guild_command(guild_id, "chrysanthemum-reload")?
-        .chat_input("Reloads Chrysanthemum configurations from disk.")?
-        .default_permission(false)
+        .create_guild_command(guild_id)
+        .chat_input(
+            "chrysanthemum-reload",
+            "Reloads Chrysanthemum configurations from disk.",
+        )?
+        .default_member_permissions(Permissions::ADMINISTRATOR)
         .exec()
         .await?
         .model()
@@ -151,8 +164,8 @@ pub(crate) async fn create_commands_for_guild(
 
 #[tracing::instrument(skip(http, old_config, new_config, command_state))]
 pub(crate) async fn update_guild_commands(
-    http: &Client,
-    guild_id: GuildId,
+    http: &InteractionClient<'_>,
+    guild_id: Id<GuildMarker>,
     old_config: Option<&SlashCommands>,
     new_config: Option<&SlashCommands>,
     command_state: Option<CommandState>,
@@ -184,7 +197,7 @@ pub(crate) async fn update_guild_commands(
         // Need to delete the commands.
         (Some(_), None, Some(command_state)) => {
             for (_kind, id) in &command_state.cmds {
-                http.delete_guild_command(guild_id, *id)?.exec().await?;
+                http.delete_guild_command(guild_id, *id).exec().await?;
             }
 
             Ok(None)
@@ -204,6 +217,14 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
         tracing::trace!("No guild ID for this command invocation");
         return Ok(());
     }
+
+    let application_id = *state.application_id.read().await;
+    if application_id.is_none() {
+        tracing::trace!("No application ID yet");
+        return Ok(());
+    }
+
+    let interaction_http = state.http.interaction(application_id.unwrap());
 
     let guild_id = cmd.guild_id.unwrap();
 
@@ -247,31 +268,32 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                             Err(reason) => format!("❎ Failed filter: {}", reason),
                         };
 
-                        state
-                            .http
-                            .interaction_callback(
+                        interaction_http
+                            .create_response(
                                 cmd.id,
                                 &cmd.token,
-                                &InteractionResponse::ChannelMessageWithSource(
-                                    CallbackDataBuilder::new()
-                                        .flags(MessageFlags::EPHEMERAL)
-                                        .embeds(vec![EmbedBuilder::new()
-                                            .title("Test filter")
-                                            .field(
-                                                EmbedFieldBuilder::new(
-                                                    "Input",
-                                                    format!("```{}```", message),
-                                                )
-                                                .build(),
-                                            )
-                                            .field(
-                                                EmbedFieldBuilder::new("Result", result_string)
+                                &InteractionResponse {
+                                    kind: InteractionResponseType::ChannelMessageWithSource,
+                                    data: Some(
+                                        InteractionResponseDataBuilder::new()
+                                            .flags(MessageFlags::EPHEMERAL)
+                                            .embeds(vec![EmbedBuilder::new()
+                                                .title("Test filter")
+                                                .field(
+                                                    EmbedFieldBuilder::new(
+                                                        "Input",
+                                                        format!("```{}```", message),
+                                                    )
                                                     .build(),
-                                            )
-                                            .build()
-                                            .unwrap()])
-                                        .build(),
-                                ),
+                                                )
+                                                .field(
+                                                    EmbedFieldBuilder::new("Result", result_string)
+                                                        .build(),
+                                                )
+                                                .build()])
+                                            .build(),
+                                    ),
+                                },
                             )
                             .exec()
                             .await
@@ -284,17 +306,19 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
             state
                 .armed
                 .store(true, std::sync::atomic::Ordering::Relaxed);
-            state
-                .http
-                .interaction_callback(
+            interaction_http
+                .create_response(
                     cmd.id,
                     &cmd.token,
-                    &InteractionResponse::ChannelMessageWithSource(
-                        CallbackDataBuilder::new()
-                            .flags(MessageFlags::EPHEMERAL)
-                            .content("Chrysanthemum **armed**.".to_owned())
-                            .build(),
-                    ),
+                    &InteractionResponse {
+                        kind: InteractionResponseType::ChannelMessageWithSource,
+                        data: Some(
+                            InteractionResponseDataBuilder::new()
+                                .flags(MessageFlags::EPHEMERAL)
+                                .content("Chrysanthemum **armed**.".to_owned())
+                                .build(),
+                        ),
+                    },
                 )
                 .exec()
                 .await
@@ -304,17 +328,19 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
             state
                 .armed
                 .store(false, std::sync::atomic::Ordering::Relaxed);
-            state
-                .http
-                .interaction_callback(
+            interaction_http
+                .create_response(
                     cmd.id,
                     &cmd.token,
-                    &InteractionResponse::ChannelMessageWithSource(
-                        CallbackDataBuilder::new()
-                            .flags(MessageFlags::EPHEMERAL)
-                            .content("Chrysanthemum **disarmed**.".to_owned())
-                            .build(),
-                    ),
+                    &InteractionResponse {
+                        kind: InteractionResponseType::ChannelMessageWithSource,
+                        data: Some(
+                            InteractionResponseDataBuilder::new()
+                                .flags(MessageFlags::EPHEMERAL)
+                                .content("Chrysanthemum **disarmed**.".to_owned())
+                                .build(),
+                        ),
+                    },
                 )
                 .exec()
                 .await
@@ -326,8 +352,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                 Ok(()) => EmbedBuilder::new()
                     .title("Reload successful")
                     .color(0x32_a8_52)
-                    .build()
-                    .unwrap(),
+                    .build(),
                 Err((_, report)) => {
                     let report = report.to_string();
                     EmbedBuilder::new()
@@ -336,21 +361,22 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                             EmbedFieldBuilder::new("Reason", format!("```{}```", report)).build(),
                         )
                         .build()
-                        .unwrap()
                 }
             };
 
-            state
-                .http
-                .interaction_callback(
+            interaction_http
+                .create_response(
                     cmd.id,
                     &cmd.token,
-                    &InteractionResponse::ChannelMessageWithSource(
-                        CallbackDataBuilder::new()
-                            .flags(MessageFlags::EPHEMERAL)
-                            .embeds(vec![embed])
-                            .build(),
-                    ),
+                    &InteractionResponse {
+                        kind: InteractionResponseType::ChannelMessageWithSource,
+                        data: Some(
+                            InteractionResponseDataBuilder::new()
+                                .flags(MessageFlags::EPHEMERAL)
+                                .embeds(vec![embed])
+                                .build(),
+                        ),
+                    },
                 )
                 .exec()
                 .await

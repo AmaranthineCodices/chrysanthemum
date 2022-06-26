@@ -1,8 +1,12 @@
 use std::collections::{HashMap, VecDeque};
+use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
 use twilight_model::channel::ReactionType;
-use twilight_model::id::{ChannelId, RoleId, UserId};
+use twilight_model::id::{
+    marker::{ChannelMarker, RoleMarker, UserMarker},
+    Id,
+};
 
 use once_cell::sync::OnceCell;
 use regex::{Regex, RegexBuilder};
@@ -73,7 +77,7 @@ where
 }
 
 impl config::Scoping {
-    pub fn is_included(&self, channel: ChannelId, author_roles: &[RoleId]) -> bool {
+    pub fn is_included(&self, channel: Id<ChannelMarker>, author_roles: &[Id<RoleMarker>]) -> bool {
         if self.include_channels.is_some() {
             if self
                 .include_channels
@@ -371,7 +375,7 @@ pub struct SpamRecord {
     attachments: u8,
     spoilers: u8,
     mentions: u8,
-    sent_at: u64,
+    sent_at: i64,
 }
 
 impl SpamRecord {
@@ -397,7 +401,7 @@ impl SpamRecord {
     }
 }
 
-pub type SpamHistory = HashMap<UserId, Arc<Mutex<VecDeque<SpamRecord>>>>;
+pub type SpamHistory = HashMap<Id<UserMarker>, Arc<Mutex<VecDeque<SpamRecord>>>>;
 
 fn exceeds_spam_thresholds(
     history: &VecDeque<SpamRecord>,
@@ -505,7 +509,13 @@ pub(crate) async fn check_spam_record(
     loop {
         match spam_history.front() {
             Some(front) => {
-                if now.saturating_sub(front.sent_at) > (config.interval as u64) * 1_000_000 {
+                if now.saturating_sub(
+                    front
+                        .sent_at
+                        .try_into()
+                        .expect("Couldn't convert i64 to u64"),
+                ) > (config.interval as u64) * 1_000_000
+                {
                     spam_history.pop_front();
                     cleared_count += 1;
                 } else {
@@ -531,28 +541,22 @@ pub(crate) async fn check_spam_record(
 mod test {
     mod scoping {
         use pretty_assertions::assert_eq;
-        use twilight_model::id::{ChannelId, RoleId};
+        use twilight_model::id::{marker::RoleMarker, Id};
 
         use crate::config::Scoping;
 
-        const EMPTY_ROLES: &'static [RoleId] = &[];
+        const EMPTY_ROLES: &'static [Id<RoleMarker>] = &[];
 
         #[test]
         fn include_channels() {
             let scoping = Scoping {
                 exclude_channels: None,
                 exclude_roles: None,
-                include_channels: Some(vec![ChannelId::new(1).unwrap()]),
+                include_channels: Some(vec![Id::new(1)]),
             };
 
-            assert_eq!(
-                scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES),
-                false
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
-                true
-            );
+            assert_eq!(scoping.is_included(Id::new(2), EMPTY_ROLES), false);
+            assert_eq!(scoping.is_included(Id::new(1), EMPTY_ROLES), true);
         }
 
         #[test]
@@ -560,73 +564,40 @@ mod test {
             let scoping = Scoping {
                 include_channels: None,
                 exclude_roles: None,
-                exclude_channels: Some(vec![ChannelId::new(1).unwrap()]),
+                exclude_channels: Some(vec![Id::new(1)]),
             };
 
-            assert_eq!(
-                scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES),
-                true
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
-                false
-            );
+            assert_eq!(scoping.is_included(Id::new(2), EMPTY_ROLES), true);
+            assert_eq!(scoping.is_included(Id::new(1), EMPTY_ROLES), false);
         }
 
         #[test]
         fn exclude_roles() {
             let scoping = Scoping {
                 include_channels: None,
-                exclude_roles: Some(vec![RoleId::new(1).unwrap()]),
+                exclude_roles: Some(vec![Id::new(1)]),
                 exclude_channels: None,
             };
 
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
-                true
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]),
-                false
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]),
-                true
-            );
+            assert_eq!(scoping.is_included(Id::new(1), EMPTY_ROLES), true);
+            assert_eq!(scoping.is_included(Id::new(1), &[Id::new(1)]), false);
+            assert_eq!(scoping.is_included(Id::new(1), &[Id::new(2)]), true);
         }
 
         #[test]
         fn complex_scoping() {
             let scoping = Scoping {
-                include_channels: Some(vec![ChannelId::new(1).unwrap()]),
+                include_channels: Some(vec![Id::new(1)]),
                 exclude_channels: None,
-                exclude_roles: Some(vec![RoleId::new(1).unwrap()]),
+                exclude_roles: Some(vec![Id::new(1)]),
             };
 
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), EMPTY_ROLES),
-                true
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(2).unwrap(), EMPTY_ROLES),
-                false
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(1).unwrap()]),
-                false
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(1).unwrap()]),
-                false
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(1).unwrap(), &[RoleId::new(2).unwrap()]),
-                true
-            );
-            assert_eq!(
-                scoping.is_included(ChannelId::new(2).unwrap(), &[RoleId::new(2).unwrap()]),
-                false
-            );
+            assert_eq!(scoping.is_included(Id::new(1), EMPTY_ROLES), true);
+            assert_eq!(scoping.is_included(Id::new(2), EMPTY_ROLES), false);
+            assert_eq!(scoping.is_included(Id::new(1), &[Id::new(1)]), false);
+            assert_eq!(scoping.is_included(Id::new(2), &[Id::new(1)]), false);
+            assert_eq!(scoping.is_included(Id::new(1), &[Id::new(2)]), true);
+            assert_eq!(scoping.is_included(Id::new(2), &[Id::new(2)]), false);
         }
     }
 
@@ -635,11 +606,8 @@ mod test {
 
         use regex::{Regex, RegexSet};
         use twilight_model::{
-            channel::{
-                message::sticker::{MessageSticker, StickerId},
-                Attachment,
-            },
-            id::AttachmentId,
+            channel::{message::sticker::MessageSticker, Attachment},
+            id::Id,
         };
 
         use crate::config::{FilterMode, MessageFilterRule};
@@ -710,7 +678,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),
@@ -725,7 +693,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),
@@ -740,7 +708,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),
@@ -774,7 +742,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),
@@ -789,7 +757,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),
@@ -804,7 +772,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),
@@ -888,7 +856,7 @@ mod test {
             let mut good_message = message(GOOD_CONTENT);
             let good_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
-                id: StickerId::new(1).unwrap(),
+                id: Id::new(1),
                 name: "goodsticker".to_owned(),
             }];
             good_message.stickers = &good_stickers;
@@ -896,7 +864,7 @@ mod test {
             let mut bad_message = message(BAD_CONTENT);
             let bad_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
-                id: StickerId::new(1).unwrap(),
+                id: Id::new(1),
                 name: "badsticker".to_owned(),
             }];
             bad_message.stickers = &bad_stickers;
@@ -912,13 +880,13 @@ mod test {
         fn filter_sticker_id_allow() {
             let rule = MessageFilterRule::StickerId {
                 mode: FilterMode::AllowList,
-                stickers: vec![StickerId::new(1).unwrap()],
+                stickers: vec![Id::new(1)],
             };
 
             let mut good_message = message(GOOD_CONTENT);
             let good_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
-                id: StickerId::new(1).unwrap(),
+                id: Id::new(1),
                 name: "goodsticker".to_owned(),
             }];
             good_message.stickers = &good_stickers;
@@ -926,7 +894,7 @@ mod test {
             let mut bad_message = message(BAD_CONTENT);
             let bad_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
-                id: StickerId::new(2).unwrap(),
+                id: Id::new(2),
                 name: "badsticker".to_owned(),
             }];
             bad_message.stickers = &bad_stickers;
@@ -942,13 +910,13 @@ mod test {
         fn filter_sticker_id_deny() {
             let rule = MessageFilterRule::StickerId {
                 mode: FilterMode::DenyList,
-                stickers: vec![StickerId::new(2).unwrap()],
+                stickers: vec![Id::new(2)],
             };
 
             let mut good_message = message(GOOD_CONTENT);
             let good_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
-                id: StickerId::new(1).unwrap(),
+                id: Id::new(1),
                 name: "goodsticker".to_owned(),
             }];
             good_message.stickers = &good_stickers;
@@ -956,7 +924,7 @@ mod test {
             let mut bad_message = message(BAD_CONTENT);
             let bad_stickers = [MessageSticker {
                 format_type: twilight_model::channel::message::sticker::StickerFormatType::Apng,
-                id: StickerId::new(2).unwrap(),
+                id: Id::new(2),
                 name: "badsticker".to_owned(),
             }];
             bad_message.stickers = &bad_stickers;
@@ -1008,18 +976,13 @@ mod test {
     mod spam {
         use std::{
             collections::{HashMap, VecDeque},
-            num::NonZeroU64,
             sync::Arc,
         };
 
         use pretty_assertions::assert_eq;
 
         use tokio::sync::RwLock;
-        use twilight_model::{
-            channel::Attachment,
-            datetime::Timestamp,
-            id::{AttachmentId, ChannelId, MessageId, UserId},
-        };
+        use twilight_model::{channel::Attachment, id::Id, util::datetime::Timestamp};
 
         use crate::{
             config::SpamFilter,
@@ -1033,9 +996,9 @@ mod test {
         fn spam_record_creation() {
             let mut info = MessageInfo {
                 author_is_bot: false,
-                id: MessageId(NonZeroU64::new(1).unwrap()),
-                author_id: UserId(NonZeroU64::new(1).unwrap()),
-                channel_id: ChannelId(NonZeroU64::new(1).unwrap()),
+                id: Id::new(1),
+                author_id: Id::new(1),
+                channel_id: Id::new(1),
                 author_roles: &[],
                 content: "test message https://discord.gg/ ||spoiler|| 💟 <@123>",
                 timestamp: Timestamp::from_secs(100).unwrap(),
@@ -1049,7 +1012,7 @@ mod test {
                 filename: "file".to_owned(),
                 description: None,
                 height: None,
-                id: AttachmentId::new(1).unwrap(),
+                id: Id::new(1),
                 proxy_url: "doesn't_matter".to_owned(),
                 size: 1,
                 url: "doesn't_matter".to_owned(),

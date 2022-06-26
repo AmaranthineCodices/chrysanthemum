@@ -211,7 +211,7 @@ mod test {
     use pretty_assertions::assert_eq;
     use regex::Regex;
     use tokio::sync::RwLock;
-    use twilight_model::id::ChannelId;
+    use twilight_model::id::Id;
 
     use super::MessageFilterFailure;
     use crate::{
@@ -233,12 +233,12 @@ mod test {
             actions: Some(vec![
                 MessageFilterAction::Delete,
                 MessageFilterAction::SendMessage {
-                    channel_id: ChannelId::new(1).unwrap(),
+                    channel_id: Id::new(1),
                     content: "$USER_ID\n$FILTER_REASON\n$MESSAGE_PREVIEW".to_string(),
                     requires_armed: false,
                 },
                 MessageFilterAction::SendLog {
-                    channel_id: ChannelId::new(1).unwrap(),
+                    channel_id: Id::new(1),
                 },
             ]),
         }];
@@ -256,7 +256,7 @@ mod test {
                         channel_id: crate::model::test::CHANNEL_ID,
                     },
                     MessageAction::SendMessage {
-                        to: ChannelId::new(1).unwrap(),
+                        to: Id::new(1),
                         content: "3
 contains word `bad`
 asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver"
@@ -264,7 +264,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
                         requires_armed: false,
                     },
                     MessageAction::SendLog {
-                        to: ChannelId::new(1).unwrap(),
+                        to: Id::new(1),
                         filter_name: "first".to_owned(),
                         message_channel: crate::model::test::CHANNEL_ID,
                         content: crate::model::test::BAD_CONTENT.to_owned(),
@@ -496,7 +496,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
                 ..Default::default()
             }),
             actions: Some(vec![MessageFilterAction::SendMessage {
-                channel_id: ChannelId::new(2).unwrap(),
+                channel_id: Id::new(2),
                 content: "filtered".to_owned(),
                 requires_armed: false,
             }]),
@@ -518,7 +518,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
                 filter_name: "first".to_owned(),
                 context: "message create",
                 actions: vec![MessageAction::SendMessage {
-                    to: ChannelId::new(2).unwrap(),
+                    to: Id::new(2),
                     content: "filtered".to_owned(),
                     requires_armed: false,
                 }],

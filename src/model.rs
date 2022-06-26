@@ -1,16 +1,16 @@
 use twilight_model::{
     channel::{message::sticker::MessageSticker, Attachment, ReactionType},
-    datetime::Timestamp,
-    id::{ChannelId, MessageId, RoleId, UserId},
+    util::datetime::Timestamp,
+    id::{Id, marker::{MessageMarker, ChannelMarker, RoleMarker, UserMarker}},
 };
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MessageInfo<'a> {
     pub(crate) author_is_bot: bool,
-    pub(crate) id: MessageId,
-    pub(crate) author_id: UserId,
-    pub(crate) channel_id: ChannelId,
-    pub(crate) author_roles: &'a [RoleId],
+    pub(crate) id: Id<MessageMarker>,
+    pub(crate) author_id: Id<UserMarker>,
+    pub(crate) channel_id: Id<ChannelMarker>,
+    pub(crate) author_roles: &'a [Id<RoleMarker>],
     pub(crate) content: &'a str,
     pub(crate) timestamp: Timestamp,
     pub(crate) attachments: &'a [Attachment],
@@ -20,10 +20,10 @@ pub(crate) struct MessageInfo<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ReactionInfo<'a> {
     pub(crate) author_is_bot: bool,
-    pub(crate) author_roles: &'a [RoleId],
-    pub(crate) author_id: UserId,
-    pub(crate) message_id: MessageId,
-    pub(crate) channel_id: ChannelId,
+    pub(crate) author_roles: &'a [Id<RoleMarker>],
+    pub(crate) author_id: Id<UserMarker>,
+    pub(crate) message_id: Id<MessageMarker>,
+    pub(crate) channel_id: Id<ChannelMarker>,
     pub(crate) reaction: ReactionType,
 }
 
@@ -31,17 +31,17 @@ pub(crate) struct ReactionInfo<'a> {
 pub(crate) mod test {
     use twilight_model::{
         channel::ReactionType,
-        datetime::Timestamp,
-        id::{ChannelId, MessageId, UserId},
+        util::datetime::Timestamp,
+        id::{Id, marker::{MessageMarker, ChannelMarker, UserMarker}},
     };
 
     use super::{MessageInfo, ReactionInfo};
 
     // const Option::unwrap is not stabilized yet.
     // Use unsafe to skip the check for 0.
-    pub(crate) const MESSAGE_ID: MessageId = unsafe { MessageId::new_unchecked(1) };
-    pub(crate) const CHANNEL_ID: ChannelId = unsafe { ChannelId::new_unchecked(2) };
-    pub(crate) const USER_ID: UserId = unsafe { UserId::new_unchecked(3) };
+    pub(crate) const MESSAGE_ID: Id<MessageMarker> = Id::new(1);
+    pub(crate) const CHANNEL_ID: Id<ChannelMarker> = Id::new(2);
+    pub(crate) const USER_ID: Id<UserMarker> = Id::new(3);
     pub(crate) const GOOD_CONTENT: &'static str =
         "this is an okay message https://discord.gg/ discord.gg/roblox";
     pub(crate) const BAD_CONTENT: &'static str =
@@ -61,7 +61,7 @@ pub(crate) mod test {
         }
     }
 
-    pub(crate) fn message_at_time(content: &'static str, timestamp: u64) -> MessageInfo<'static> {
+    pub(crate) fn message_at_time(content: &'static str, timestamp: i64) -> MessageInfo<'static> {
         let mut info = message(content);
         info.timestamp = Timestamp::from_secs(timestamp).unwrap();
         info

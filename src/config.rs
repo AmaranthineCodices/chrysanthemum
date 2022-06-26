@@ -8,8 +8,7 @@ use eyre::{Context, Result};
 use serde::Deserialize;
 
 use twilight_model::{
-    channel::message::sticker::StickerId,
-    id::{ChannelId, EmojiId, GuildId, RoleId, UserId},
+    id::{Id, marker::{ChannelMarker, EmojiMarker, GuildMarker, RoleMarker, UserMarker, StickerMarker}},
 };
 
 use regex::{Regex, RegexBuilder, RegexSet};
@@ -99,12 +98,12 @@ pub enum MessageFilterAction {
     Delete,
     /// Send a message to a channel.
     SendMessage {
-        channel_id: ChannelId,
+        channel_id: Id<ChannelMarker>,
         content: String,
         requires_armed: bool,
     },
     SendLog {
-        channel_id: ChannelId,
+        channel_id: Id<ChannelMarker>,
     },
 }
 
@@ -119,11 +118,11 @@ pub enum FilterMode {
 #[derive(Deserialize, Debug, Default)]
 pub struct Scoping {
     /// Which channels to exclude.
-    pub exclude_channels: Option<Vec<ChannelId>>,
+    pub exclude_channels: Option<Vec<Id<ChannelMarker>>>,
     /// Which channels to include.
-    pub include_channels: Option<Vec<ChannelId>>,
+    pub include_channels: Option<Vec<Id<ChannelMarker>>>,
     /// Which roles to exclude.
-    pub exclude_roles: Option<Vec<RoleId>>,
+    pub exclude_roles: Option<Vec<Id<RoleMarker>>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -162,7 +161,7 @@ pub enum MessageFilterRule {
     },
     StickerId {
         mode: FilterMode,
-        stickers: Vec<StickerId>,
+        stickers: Vec<Id<StickerMarker>>,
     },
     StickerName {
         // Note: In the config format, this is an array of strings, not one
@@ -222,7 +221,7 @@ pub enum ReactionFilterRule {
     /// Filter custom emoji by ID.
     CustomId {
         mode: FilterMode,
-        emoji: Vec<EmojiId>,
+        emoji: Vec<Id<EmojiMarker>>,
     },
     /// Filter custom emoji by name.
     CustomName {
@@ -244,9 +243,9 @@ pub struct ReactionFilter {
 #[derive(Deserialize, Debug, PartialEq, Eq)]
 pub struct SlashCommand {
     #[serde(default)]
-    pub roles: Vec<RoleId>,
+    pub roles: Vec<Id<RoleMarker>>,
     #[serde(default)]
-    pub users: Vec<UserId>,
+    pub users: Vec<Id<UserMarker>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -260,9 +259,9 @@ pub struct SlashCommands {
 #[derive(Deserialize, Debug)]
 pub struct Notifications {
     /// Which channel to send notifications to.
-    pub channel: ChannelId,
+    pub channel: Id<ChannelMarker>,
     /// Which roles to ping for notifications.
-    pub ping_roles: Option<Vec<RoleId>>,
+    pub ping_roles: Option<Vec<Id<RoleMarker>>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -283,7 +282,7 @@ pub enum UsernameFilterRule {
 #[derive(Deserialize, Debug)]
 pub enum UsernameFilterAction {
     SendMessage {
-        channel_id: ChannelId,
+        channel_id: Id<ChannelMarker>,
         content: String,
     },
 }
@@ -330,7 +329,7 @@ pub struct SentryConfig {
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub guild_config_dir: PathBuf,
-    pub active_guilds: Vec<GuildId>,
+    pub active_guilds: Vec<Id<GuildMarker>>,
     pub influx: Option<InfluxConfig>,
     pub sentry: Option<SentryConfig>,
     pub reload_interval: Option<u64>,
@@ -564,7 +563,7 @@ pub enum LoadConfigError {
     ValidateError(Vec<String>),
 }
 
-pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig> {
+pub fn load_config(config_root: &Path, guild_id: Id<GuildMarker>) -> Result<GuildConfig> {
     let mut config_path = config_root.join(guild_id.to_string());
     config_path.set_extension("yml");
 
@@ -580,8 +579,8 @@ pub fn load_config(config_root: &Path, guild_id: GuildId) -> Result<GuildConfig>
 
 pub fn load_guild_configs(
     config_root: &Path,
-    guild_ids: &[GuildId],
-) -> Result<HashMap<GuildId, GuildConfig>, (GuildId, eyre::Report)> {
+    guild_ids: &[Id<GuildMarker>],
+) -> Result<HashMap<Id<GuildMarker>, GuildConfig>, (Id<GuildMarker>, eyre::Report)> {
     let mut configs = HashMap::new();
 
     for guild_id in guild_ids {
