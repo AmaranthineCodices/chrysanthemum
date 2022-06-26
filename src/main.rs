@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -7,7 +6,6 @@ use std::time::{Duration, Instant};
 
 use action::{MessageAction, ReactionAction};
 use chrono::{DateTime, Utc};
-use color_eyre::Report;
 use command::CommandState;
 use filter::SpamHistory;
 use influxdb::{InfluxDbWriteable, WriteQuery};
