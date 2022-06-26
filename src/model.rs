@@ -1,7 +1,10 @@
 use twilight_model::{
     channel::{message::sticker::MessageSticker, Attachment, ReactionType},
+    id::{
+        marker::{ChannelMarker, MessageMarker, RoleMarker, UserMarker},
+        Id,
+    },
     util::datetime::Timestamp,
-    id::{Id, marker::{MessageMarker, ChannelMarker, RoleMarker, UserMarker}},
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -31,8 +34,11 @@ pub(crate) struct ReactionInfo<'a> {
 pub(crate) mod test {
     use twilight_model::{
         channel::ReactionType,
+        id::{
+            marker::{ChannelMarker, MessageMarker, UserMarker},
+            Id,
+        },
         util::datetime::Timestamp,
-        id::{Id, marker::{MessageMarker, ChannelMarker, UserMarker}},
     };
 
     use super::{MessageInfo, ReactionInfo};

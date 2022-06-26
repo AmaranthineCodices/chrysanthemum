@@ -26,7 +26,7 @@ use twilight_model::channel::{Message, Reaction};
 use twilight_model::gateway::payload::incoming::MessageUpdate;
 use twilight_model::gateway::Intents;
 use twilight_model::id::marker::ApplicationMarker;
-use twilight_model::id::{Id, marker::GuildMarker};
+use twilight_model::id::{marker::GuildMarker, Id};
 
 use color_eyre::eyre::Result;
 
@@ -187,7 +187,9 @@ async fn main() -> Result<()> {
     let intents =
         Intents::GUILD_MESSAGES | Intents::GUILD_MEMBERS | Intents::GUILD_MESSAGE_REACTIONS;
 
-    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build().await?;
+    let (shard, mut events) = Shard::builder(discord_token.clone(), intents)
+        .build()
+        .await?;
     shard.start().await?;
 
     let http = Arc::new(HttpClient::new(discord_token));

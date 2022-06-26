@@ -7,8 +7,9 @@ use std::{
 use eyre::{Context, Result};
 use serde::Deserialize;
 
-use twilight_model::{
-    id::{Id, marker::{ChannelMarker, EmojiMarker, GuildMarker, RoleMarker, UserMarker, StickerMarker}},
+use twilight_model::id::{
+    marker::{ChannelMarker, EmojiMarker, GuildMarker, RoleMarker, StickerMarker, UserMarker},
+    Id,
 };
 
 use regex::{Regex, RegexBuilder, RegexSet};

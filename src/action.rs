@@ -1,8 +1,11 @@
-use twilight_http::{Client, request::channel::reaction::RequestReactionType};
+use twilight_http::{request::channel::reaction::RequestReactionType, Client};
 use twilight_mention::Mention;
 use twilight_model::{
     channel::ReactionType,
-    id::{Id, marker::{ChannelMarker, MessageMarker, UserMarker}},
+    id::{
+        marker::{ChannelMarker, MessageMarker, UserMarker},
+        Id,
+    },
 };
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
