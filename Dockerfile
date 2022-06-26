@@ -1,4 +1,4 @@
-FROM rust:1.57 as builder
+FROM rust:1.61 as builder
 WORKDIR /usr/src/chrysanthemum
 COPY ./src/ ./src/
 COPY ./Cargo.lock ./Cargo.lock
