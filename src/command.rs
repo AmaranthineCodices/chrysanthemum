@@ -5,7 +5,6 @@ use twilight_http::client::InteractionClient;
 use twilight_model::{
     application::{
         command::{
-            permissions::{CommandPermissions, CommandPermissionsType},
             ChoiceCommandOptionData, CommandOption,
         },
         interaction::{application_command::CommandOptionValue, ApplicationCommand},
@@ -23,7 +22,7 @@ use twilight_util::builder::{
     InteractionResponseDataBuilder,
 };
 
-use crate::config::{SlashCommand, SlashCommands};
+use crate::config::SlashCommands;
 
 #[derive(Hash, Debug, PartialEq, Eq, Clone, Copy)]
 enum CommandKind {
@@ -31,17 +30,6 @@ enum CommandKind {
     Arm,
     Disarm,
     Reload,
-}
-
-impl CommandKind {
-    fn get_config<'cfg>(&self, config: &'cfg SlashCommands) -> &'cfg SlashCommand {
-        match self {
-            CommandKind::Test => &config.test,
-            CommandKind::Arm => &config.arm,
-            CommandKind::Disarm => &config.disarm,
-            CommandKind::Reload => &config.reload,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -61,37 +49,10 @@ impl CommandState {
     }
 }
 
-#[tracing::instrument(skip(http, command_config))]
-async fn update_command_permission(
-    http: &InteractionClient<'_>,
-    guild_id: Id<GuildMarker>,
-    command_id: Id<CommandMarker>,
-    command_config: &SlashCommand,
-) -> Result<()> {
-    let permissions: Vec<_> = command_config
-        .roles
-        .iter()
-        .map(|r| CommandPermissions {
-            id: CommandPermissionsType::Role(*r),
-            permission: true,
-        })
-        .chain(command_config.users.iter().map(|u| CommandPermissions {
-            id: CommandPermissionsType::User(*u),
-            permission: true,
-        }))
-        .collect();
-
-    http.update_command_permissions(guild_id, command_id, &permissions)?
-        .exec()
-        .await?;
-    Ok(())
-}
-
-#[tracing::instrument(skip(http, command_config))]
+#[tracing::instrument(skip(http))]
 pub(crate) async fn create_commands_for_guild(
     http: &InteractionClient<'_>,
     guild_id: Id<GuildMarker>,
-    command_config: &SlashCommands,
 ) -> Result<CommandState> {
     let test_cmd = http
         .create_guild_command(guild_id)
@@ -99,7 +60,7 @@ pub(crate) async fn create_commands_for_guild(
             "chrysanthemum-test",
             "Test a message against Chrysanthemum's filter.",
         )?
-        .default_member_permissions(Permissions::ADMINISTRATOR)
+        .default_member_permissions(Permissions::MANAGE_MESSAGES)
         .command_options(&[CommandOption::String(ChoiceCommandOptionData {
             autocomplete: false,
             name: "message".to_owned(),
@@ -148,11 +109,6 @@ pub(crate) async fn create_commands_for_guild(
     let disarm_cmd = disarm_cmd.id.unwrap();
     let reload_cmd = reload_cmd.id.unwrap();
 
-    update_command_permission(http, guild_id, arm_cmd, &command_config.arm).await?;
-    update_command_permission(http, guild_id, disarm_cmd, &command_config.disarm).await?;
-    update_command_permission(http, guild_id, reload_cmd, &command_config.reload).await?;
-    update_command_permission(http, guild_id, test_cmd, &command_config.test).await?;
-
     let mut map = HashMap::new();
     map.insert(CommandKind::Arm, arm_cmd);
     map.insert(CommandKind::Disarm, disarm_cmd);
@@ -171,37 +127,24 @@ pub(crate) async fn update_guild_commands(
     command_state: Option<CommandState>,
 ) -> Result<Option<CommandState>> {
     match (old_config, new_config, command_state) {
-        // Permissions have potentially changed.
-        (Some(old_config), Some(new_config), Some(command_state)) => {
-            for (kind, id) in &command_state.cmds {
-                let old_config = kind.get_config(old_config);
-                let new_config = kind.get_config(new_config);
-
-                // We don't want to change permissions redundantly or we'll run into
-                // Discord quotas on this endpoint fairly quickly.
-                if old_config != new_config {
-                    update_command_permission(http, guild_id, *id, new_config).await?;
-                }
-            }
-
-            Ok(Some(command_state))
-        }
         // Command isn't registered.
-        (Some(_), Some(new_config), None) => Ok(Some(
-            create_commands_for_guild(http, guild_id, new_config).await?,
+        (Some(_), Some(_), None) => Ok(Some(
+            create_commands_for_guild(http, guild_id).await?,
         )),
         // Need to create the commands.
-        (None, Some(new_config), _) => Ok(Some(
-            create_commands_for_guild(http, guild_id, new_config).await?,
+        (None, Some(_), _) => Ok(Some(
+            create_commands_for_guild(http, guild_id).await?,
         )),
         // Need to delete the commands.
         (Some(_), None, Some(command_state)) => {
             for id in command_state.cmds.values() {
                 http.delete_guild_command(guild_id, *id).exec().await?;
             }
-
+            
             Ok(None)
         }
+        // We can't alter permissions.
+        (Some(_), Some(_), Some(command_state)) => Ok(Some(command_state)),
         // We never registered commands for this guild, and the new config doesn't
         // need them, so do nothing.
         (Some(_), None, None) => Ok(None),
