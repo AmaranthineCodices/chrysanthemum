@@ -4,9 +4,7 @@ use color_eyre::eyre::Result;
 use twilight_http::client::InteractionClient;
 use twilight_model::{
     application::{
-        command::{
-            ChoiceCommandOptionData, CommandOption,
-        },
+        command::{ChoiceCommandOptionData, CommandOption},
         interaction::{application_command::CommandOptionValue, ApplicationCommand},
     },
     channel::message::MessageFlags,
@@ -128,19 +126,15 @@ pub(crate) async fn update_guild_commands(
 ) -> Result<Option<CommandState>> {
     match (old_config, new_config, command_state) {
         // Command isn't registered.
-        (Some(_), Some(_), None) => Ok(Some(
-            create_commands_for_guild(http, guild_id).await?,
-        )),
+        (Some(_), Some(_), None) => Ok(Some(create_commands_for_guild(http, guild_id).await?)),
         // Need to create the commands.
-        (None, Some(_), _) => Ok(Some(
-            create_commands_for_guild(http, guild_id).await?,
-        )),
+        (None, Some(_), _) => Ok(Some(create_commands_for_guild(http, guild_id).await?)),
         // Need to delete the commands.
         (Some(_), None, Some(command_state)) => {
             for id in command_state.cmds.values() {
                 http.delete_guild_command(guild_id, *id).exec().await?;
             }
-            
+
             Ok(None)
         }
         // We can't alter permissions.
