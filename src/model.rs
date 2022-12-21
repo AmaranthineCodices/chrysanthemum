@@ -1,5 +1,5 @@
 use twilight_model::{
-    channel::{message::sticker::MessageSticker, Attachment, ReactionType},
+    channel::{message::sticker::MessageSticker, Attachment, message::ReactionType},
     id::{
         marker::{ChannelMarker, MessageMarker, RoleMarker, UserMarker},
         Id,
@@ -33,7 +33,7 @@ pub(crate) struct ReactionInfo<'a> {
 #[cfg(test)]
 pub(crate) mod test {
     use twilight_model::{
-        channel::ReactionType,
+        channel::message::ReactionType,
         id::{
             marker::{ChannelMarker, MessageMarker, UserMarker},
             Id,

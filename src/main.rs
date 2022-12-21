@@ -21,10 +21,10 @@ use twilight_gateway::Event;
 use twilight_gateway::Shard;
 use twilight_http::Client as HttpClient;
 use twilight_mention::Mention;
-use twilight_model::application::interaction::Interaction;
-use twilight_model::channel::{Message, Reaction};
+use twilight_model::application::interaction::InteractionData;
+use twilight_model::channel::Message;
 use twilight_model::gateway::payload::incoming::MessageUpdate;
-use twilight_model::gateway::Intents;
+use twilight_model::gateway::{Intents, GatewayReaction};
 use twilight_model::id::marker::ApplicationMarker;
 use twilight_model::id::{marker::GuildMarker, Id};
 
@@ -187,9 +187,7 @@ async fn main() -> Result<()> {
         | Intents::GUILD_MESSAGE_REACTIONS
         | Intents::MESSAGE_CONTENT;
 
-    let (shard, mut events) = Shard::builder(discord_token.clone(), intents)
-        .build()
-        .await?;
+    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
     shard.start().await?;
 
     let http = Arc::new(HttpClient::new(discord_token));
@@ -342,8 +340,8 @@ async fn handle_event(event: &Event, state: State) -> Result<()> {
         }
         Event::InteractionCreate(interaction) => {
             let interaction = &interaction.0;
-            if let Interaction::ApplicationCommand(cmd) = interaction {
-                command::handle_command(state.clone(), cmd.as_ref()).await?;
+            if let Some(InteractionData::ApplicationCommand(cmd)) = &interaction.data {
+                command::handle_command(state.clone(), interaction, cmd.as_ref()).await?;
             }
         }
         _ => {}
@@ -508,7 +506,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
 }
 
 #[tracing::instrument(skip(state))]
-async fn filter_reaction(rxn: &Reaction, state: State) -> Result<()> {
+async fn filter_reaction(rxn: &GatewayReaction, state: State) -> Result<()> {
     if rxn.guild_id.is_none() {
         tracing::trace!("A reaction was added, but no guild ID is present. Ignoring.");
         return Ok(());
@@ -590,22 +588,25 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         None => return Ok(()),
     };
 
+    let (author_id, author_is_bot) = match &update.author {
+        Some(author) => (author.id, author.bot),
+        None => return Ok(())
+    };
+
     let http_message = state
         .http
         .message(update.channel_id, update.id)
-        .exec()
         .await?
         .model()
         .await?;
 
     let author_roles = {
-        let cached_member = state.cache.member(guild_id, http_message.author.id);
+        let cached_member = state.cache.member(guild_id, author_id);
         match cached_member.as_ref() {
             Some(member) => member.roles().to_owned(),
             None => state
                 .http
-                .guild_member(guild_id, http_message.author.id)
-                .exec()
+                .guild_member(guild_id, author_id)
                 .await?
                 .model()
                 .await?
@@ -616,14 +617,14 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
 
     let message_info = MessageInfo {
         id: http_message.id,
-        author_id: http_message.author.id,
         channel_id: http_message.channel_id,
         timestamp: http_message.timestamp,
-        author_is_bot: http_message.author.bot,
         author_roles: &author_roles[..],
         content: &http_message.content,
         attachments: &http_message.attachments,
         stickers: &http_message.sticker_items,
+        author_id,
+        author_is_bot,
     };
 
     filter_message_info(guild_id, &message_info, state, "message edit").await
@@ -719,7 +720,6 @@ async fn send_notification_to_guild(
                 .http
                 .create_message(notification_config.channel)
                 .embeds(&[builder.build()])?
-                .exec()
                 .await?;
         }
     }

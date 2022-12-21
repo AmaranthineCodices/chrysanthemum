@@ -4,10 +4,10 @@ use color_eyre::eyre::Result;
 use twilight_http::client::InteractionClient;
 use twilight_model::{
     application::{
-        command::{ChoiceCommandOptionData, CommandOption},
-        interaction::{application_command::CommandOptionValue, ApplicationCommand},
+        command::{CommandOption, CommandOptionType},
+        interaction::{application_command::{CommandOptionValue, CommandData}, Interaction},
     },
-    channel::message::MessageFlags,
+    channel::{message::MessageFlags, ChannelType},
     guild::Permissions,
     http::interaction::{InteractionResponse, InteractionResponseType},
     id::{
@@ -59,15 +59,22 @@ pub(crate) async fn create_commands_for_guild(
             "Test a message against Chrysanthemum's filter.",
         )?
         .default_member_permissions(Permissions::MANAGE_MESSAGES)
-        .command_options(&[CommandOption::String(ChoiceCommandOptionData {
-            autocomplete: false,
+        .command_options(&[CommandOption {
             name: "message".to_owned(),
             description: "The message to test.".to_owned(),
-            required: true,
-            choices: vec![],
-            ..Default::default()
-        })])?
-        .exec()
+            channel_types: Some(vec![ChannelType::GuildText, ChannelType::GuildVoice, ChannelType::GuildCategory, ChannelType::GuildAnnouncement]),
+            kind: CommandOptionType::String,
+            max_length: Some(2000),
+            min_length: Some(1),
+            autocomplete: None,
+            choices: None,
+            description_localizations: None,
+            max_value: None,
+            min_value: None,
+            name_localizations: None,
+            options: None,
+            required: Some(true),
+        }])?
         .await?
         .model()
         .await?;
@@ -76,7 +83,6 @@ pub(crate) async fn create_commands_for_guild(
         .create_guild_command(guild_id)
         .chat_input("chrysanthemum-arm", "Arms Chrysanthemum.")?
         .default_member_permissions(Permissions::ADMINISTRATOR)
-        .exec()
         .await?
         .model()
         .await?;
@@ -85,7 +91,6 @@ pub(crate) async fn create_commands_for_guild(
         .create_guild_command(guild_id)
         .chat_input("chrysanthemum-disarm", "Disarms Chrysanthemum.")?
         .default_member_permissions(Permissions::ADMINISTRATOR)
-        .exec()
         .await?
         .model()
         .await?;
@@ -97,7 +102,6 @@ pub(crate) async fn create_commands_for_guild(
             "Reloads Chrysanthemum configurations from disk.",
         )?
         .default_member_permissions(Permissions::ADMINISTRATOR)
-        .exec()
         .await?
         .model()
         .await?;
@@ -132,7 +136,7 @@ pub(crate) async fn update_guild_commands(
         // Need to delete the commands.
         (Some(_), None, Some(command_state)) => {
             for id in command_state.cmds.values() {
-                http.delete_guild_command(guild_id, *id).exec().await?;
+                http.delete_guild_command(guild_id, *id).await?;
             }
 
             Ok(None)
@@ -148,8 +152,8 @@ pub(crate) async fn update_guild_commands(
 }
 
 #[tracing::instrument(skip(state))]
-pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand) -> Result<()> {
-    tracing::debug!(?cmd.data.id, ?state.cmd_states, "Executing command");
+pub(crate) async fn handle_command(state: crate::State, interaction: &Interaction, cmd: &CommandData) -> Result<()> {
+    tracing::debug!(?cmd.id, ?state.cmd_states, "Executing command");
     if cmd.guild_id.is_none() {
         tracing::trace!("No guild ID for this command invocation");
         return Ok(());
@@ -170,7 +174,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
         let cmd_state = cmd_states.get(&guild_id).unwrap_or(&None);
 
         if let Some(cmd_state) = cmd_state {
-            cmd_state.get_command_kind(cmd.data.id)
+            cmd_state.get_command_kind(cmd.id)
         } else {
             tracing::trace!(%guild_id, "No command state for guild");
             return Ok(());
@@ -178,7 +182,7 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
     };
 
     if cmd_kind.is_none() {
-        tracing::trace!(?state.cmd_states, ?cmd.data.id, "Couldn't find command kind for command invocation");
+        tracing::trace!(?state.cmd_states, ?cmd.id, "Couldn't find command kind for command invocation");
         return Ok(());
     }
 
@@ -186,11 +190,11 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
 
     match cmd_kind.unwrap() {
         CommandKind::Test => {
-            if cmd.data.options.is_empty() {
+            if cmd.options.is_empty() {
                 return Ok(());
             }
 
-            if let CommandOptionValue::String(message) = &cmd.data.options[0].value {
+            if let CommandOptionValue::String(message) = &cmd.options[0].value {
                 let guild_cfgs = state.guild_cfgs.read().await;
 
                 if let Some(guild_config) = guild_cfgs.get(&guild_id) {
@@ -207,8 +211,8 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
 
                         interaction_http
                             .create_response(
-                                cmd.id,
-                                &cmd.token,
+                                interaction.id,
+                                &interaction.token,
                                 &InteractionResponse {
                                     kind: InteractionResponseType::ChannelMessageWithSource,
                                     data: Some(
@@ -232,7 +236,6 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                                     ),
                                 },
                             )
-                            .exec()
                             .await
                             .unwrap();
                     }
@@ -245,8 +248,8 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                 .store(true, std::sync::atomic::Ordering::Relaxed);
             interaction_http
                 .create_response(
-                    cmd.id,
-                    &cmd.token,
+                    interaction.id,
+                    &interaction.token,
                     &InteractionResponse {
                         kind: InteractionResponseType::ChannelMessageWithSource,
                         data: Some(
@@ -257,7 +260,6 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                         ),
                     },
                 )
-                .exec()
                 .await
                 .unwrap();
         }
@@ -267,8 +269,8 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                 .store(false, std::sync::atomic::Ordering::Relaxed);
             interaction_http
                 .create_response(
-                    cmd.id,
-                    &cmd.token,
+                    interaction.id,
+                    &interaction.token,
                     &InteractionResponse {
                         kind: InteractionResponseType::ChannelMessageWithSource,
                         data: Some(
@@ -279,7 +281,6 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                         ),
                     },
                 )
-                .exec()
                 .await
                 .unwrap();
         }
@@ -303,8 +304,8 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
 
             interaction_http
                 .create_response(
-                    cmd.id,
-                    &cmd.token,
+                    interaction.id,
+                    &interaction.token,
                     &InteractionResponse {
                         kind: InteractionResponseType::ChannelMessageWithSource,
                         data: Some(
@@ -315,7 +316,6 @@ pub(crate) async fn handle_command(state: crate::State, cmd: &ApplicationCommand
                         ),
                     },
                 )
-                .exec()
                 .await
                 .unwrap();
         }

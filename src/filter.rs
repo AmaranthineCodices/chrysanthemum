@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
-use twilight_model::channel::ReactionType;
+use twilight_model::channel::message::ReactionType;
 use twilight_model::id::{
     marker::{ChannelMarker, RoleMarker, UserMarker},
     Id,

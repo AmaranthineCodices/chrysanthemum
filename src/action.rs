@@ -1,7 +1,7 @@
 use twilight_http::{request::channel::reaction::RequestReactionType, Client};
 use twilight_mention::Mention;
 use twilight_model::{
-    channel::ReactionType,
+    channel::message::ReactionType,
     id::{
         marker::{ChannelMarker, MessageMarker, UserMarker},
         Id,
@@ -41,10 +41,10 @@ impl MessageAction {
                 message_id,
                 channel_id,
             } => {
-                http.delete_message(*channel_id, *message_id).exec().await?;
+                http.delete_message(*channel_id, *message_id).await?;
             }
             Self::SendMessage { to, content, .. } => {
-                http.create_message(*to).content(content)?.exec().await?;
+                http.create_message(*to).content(content)?.await?;
             }
             Self::SendLog {
                 to,
@@ -73,7 +73,6 @@ impl MessageAction {
                 http.create_message(*to)
                     .embeds(&[embed_builder.build()])
                     .unwrap()
-                    .exec()
                     .await?;
             }
         };
@@ -130,12 +129,10 @@ impl ReactionAction {
                     ReactionType::Unicode { name } => RequestReactionType::Unicode { name },
                 };
 
-                http.delete_all_reaction(*channel_id, *message_id, &request_emoji)
-                    .exec()
-                    .await?;
+                http.delete_all_reaction(*channel_id, *message_id, &request_emoji).await?;
             }
             Self::SendMessage { to, content, .. } => {
-                http.create_message(*to).content(content)?.exec().await?;
+                http.create_message(*to).content(content)?.await?;
             }
             Self::SendLog {
                 to,
@@ -172,8 +169,7 @@ impl ReactionAction {
                         .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
                         .field(EmbedFieldBuilder::new("Reaction", rxn_string).build())
                         .build()])
-                    .unwrap()
-                    .exec()
+                    .unwrap() 
                     .await?;
             }
         };
