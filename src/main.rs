@@ -24,7 +24,7 @@ use twilight_mention::Mention;
 use twilight_model::application::interaction::InteractionData;
 use twilight_model::channel::Message;
 use twilight_model::gateway::payload::incoming::MessageUpdate;
-use twilight_model::gateway::{Intents, GatewayReaction};
+use twilight_model::gateway::{GatewayReaction, Intents};
 use twilight_model::id::marker::ApplicationMarker;
 use twilight_model::id::{marker::GuildMarker, Id};
 
@@ -590,7 +590,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
 
     let (author_id, author_is_bot) = match &update.author {
         Some(author) => (author.id, author.bot),
-        None => return Ok(())
+        None => return Ok(()),
     };
 
     let http_message = state

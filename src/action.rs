@@ -129,7 +129,8 @@ impl ReactionAction {
                     ReactionType::Unicode { name } => RequestReactionType::Unicode { name },
                 };
 
-                http.delete_all_reaction(*channel_id, *message_id, &request_emoji).await?;
+                http.delete_all_reaction(*channel_id, *message_id, &request_emoji)
+                    .await?;
             }
             Self::SendMessage { to, content, .. } => {
                 http.create_message(*to).content(content)?.await?;
@@ -169,7 +170,7 @@ impl ReactionAction {
                         .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
                         .field(EmbedFieldBuilder::new("Reaction", rxn_string).build())
                         .build()])
-                    .unwrap() 
+                    .unwrap()
                     .await?;
             }
         };

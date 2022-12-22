@@ -5,7 +5,10 @@ use twilight_http::client::InteractionClient;
 use twilight_model::{
     application::{
         command::{CommandOption, CommandOptionType},
-        interaction::{application_command::{CommandOptionValue, CommandData}, Interaction},
+        interaction::{
+            application_command::{CommandData, CommandOptionValue},
+            Interaction,
+        },
     },
     channel::{message::MessageFlags, ChannelType},
     guild::Permissions,
@@ -62,7 +65,12 @@ pub(crate) async fn create_commands_for_guild(
         .command_options(&[CommandOption {
             name: "message".to_owned(),
             description: "The message to test.".to_owned(),
-            channel_types: Some(vec![ChannelType::GuildText, ChannelType::GuildVoice, ChannelType::GuildCategory, ChannelType::GuildAnnouncement]),
+            channel_types: Some(vec![
+                ChannelType::GuildText,
+                ChannelType::GuildVoice,
+                ChannelType::GuildCategory,
+                ChannelType::GuildAnnouncement,
+            ]),
             kind: CommandOptionType::String,
             max_length: Some(2000),
             min_length: Some(1),
@@ -152,7 +160,11 @@ pub(crate) async fn update_guild_commands(
 }
 
 #[tracing::instrument(skip(state))]
-pub(crate) async fn handle_command(state: crate::State, interaction: &Interaction, cmd: &CommandData) -> Result<()> {
+pub(crate) async fn handle_command(
+    state: crate::State,
+    interaction: &Interaction,
+    cmd: &CommandData,
+) -> Result<()> {
     tracing::debug!(?cmd.id, ?state.cmd_states, "Executing command");
     if cmd.guild_id.is_none() {
         tracing::trace!("No guild ID for this command invocation");
