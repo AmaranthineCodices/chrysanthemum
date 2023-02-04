@@ -3,3 +3,4 @@ chrysanthemum*.cfg.yml
 .env
 /configs
 .vscode
+.idea
