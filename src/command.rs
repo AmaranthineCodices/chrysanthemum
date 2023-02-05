@@ -211,15 +211,29 @@ pub(crate) async fn handle_command(
 
                 if let Some(guild_config) = guild_cfgs.get(&guild_id) {
                     if let Some(message_filters) = &guild_config.messages {
-                        let mut result = Ok(());
-                        for filter in message_filters {
-                            result = result.and(filter.filter_text(&message[..]));
-                        }
+                        let result = message_filters
+                            .iter()
+                            .map(|f| f.filter_text(&message[..]).map_err(|e| (f, e)))
+                            .find(Result::is_err)
+                            .map(|r| r.unwrap_err());
 
-                        let result_string = match result {
-                            Ok(()) => "✅ Passed all filters".to_owned(),
-                            Err(reason) => format!("❎ Failed filter: {}", reason),
-                        };
+                        let mut builder = EmbedBuilder::new().title("Test filter").field(
+                            EmbedFieldBuilder::new("Input", format!("```{}```", message)).build(),
+                        );
+
+                        match result {
+                            Some((filter, reason)) => {
+                                builder = builder
+                                    .field(EmbedFieldBuilder::new("Status", format!("❌ Failed: {}", reason)))
+                                    .field(EmbedFieldBuilder::new("Filter", &filter.name));
+                            }
+                            None => {
+                                builder = builder.field(EmbedFieldBuilder::new(
+                                    "Status",
+                                    "✅ Passed all filters",
+                                ));
+                            }
+                        }
 
                         interaction_http
                             .create_response(
@@ -230,20 +244,7 @@ pub(crate) async fn handle_command(
                                     data: Some(
                                         InteractionResponseDataBuilder::new()
                                             .flags(MessageFlags::EPHEMERAL)
-                                            .embeds(vec![EmbedBuilder::new()
-                                                .title("Test filter")
-                                                .field(
-                                                    EmbedFieldBuilder::new(
-                                                        "Input",
-                                                        format!("```{}```", message),
-                                                    )
-                                                    .build(),
-                                                )
-                                                .field(
-                                                    EmbedFieldBuilder::new("Result", result_string)
-                                                        .build(),
-                                                )
-                                                .build()])
+                                            .embeds(vec![builder.build()])
                                             .build(),
                                     ),
                                 },
