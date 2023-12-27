@@ -130,8 +130,7 @@ fn validate_configs() -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     color_eyre::install()?;
     init_tracing();
     dotenv::dotenv().ok();
@@ -158,6 +157,7 @@ async fn main() -> Result<()> {
             sentry::ClientOptions {
                 release: sentry::release_name!(),
                 traces_sample_rate: sentry_config.sample_rate.unwrap_or(0.01),
+                debug: cfg!(debug_assertions),
                 ..Default::default()
             },
         ))
@@ -186,6 +186,9 @@ async fn main() -> Result<()> {
         | Intents::MESSAGE_CONTENT;
 
     let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
+
+    tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
+
     shard.start().await?;
 
     let http = Arc::new(HttpClient::new(discord_token));
@@ -245,6 +248,7 @@ async fn main() -> Result<()> {
             }
         }
     }
+    })
 }
 
 async fn handle_event_wrapper(event: Event, state: State) {
@@ -279,11 +283,7 @@ async fn handle_event_wrapper(event: Event, state: State) {
         _ => return,
     };
 
-    #[cfg(debug_assertions)]
-    let development = true;
-    #[cfg(not(debug_assertions))]
-    let development = false;
-
+    let development = cfg!(debug_assertions);
     let report = EventTimingReport {
         time: Utc::now(),
         time_taken: time.as_secs_f64(),
@@ -430,7 +430,7 @@ async fn filter_message_info<'msg>(
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
-                        tracing::error!(?action, ?action_err, "Error executing action");
+                        tracing::warn!(?action, ?action_err, "Error executing action");
                     }
                 }
 
@@ -547,7 +547,7 @@ async fn filter_reaction(rxn: &GatewayReaction, state: State) -> Result<()> {
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
-                        tracing::error!(?action_err, ?action, "Error executing reaction action");
+                        tracing::warn!(?action_err, ?action, "Error executing reaction action");
                     }
                 }
 
