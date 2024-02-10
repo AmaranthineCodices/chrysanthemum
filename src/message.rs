@@ -235,7 +235,9 @@ mod test {
     use tokio::sync::RwLock;
     use twilight_model::id::Id;
 
+    use super::MentionTrait;
     use super::MessageFilterFailure;
+
     use crate::{
         action::MessageAction,
         config::{MessageFilter, MessageFilterAction, MessageFilterRule, Scoping, SpamFilter},
@@ -830,7 +832,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
         let name = mention.name.clone();
 
         let result = super::clean_message_mentions(
-            &format!("Hey <@{}>", mention.id),
+            &format!("Hey {}", mention.id.mention()),
             &vec![mention],
         );
 
