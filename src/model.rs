@@ -34,6 +34,8 @@ pub(crate) struct ReactionInfo<'a> {
 pub(crate) mod test {
     use twilight_model::{
         channel::message::ReactionType,
+        channel::message::Mention,
+        user::UserFlags,
         id::{
             marker::{ChannelMarker, MessageMarker, UserMarker},
             Id,
@@ -52,6 +54,18 @@ pub(crate) mod test {
         "this is an okay message https://discord.gg/ discord.gg/roblox";
     pub(crate) const BAD_CONTENT: &'static str =
         "asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̣̪̤̹̖͓͉̿l̷̼̬͊͊̀́̽̑̕g̵̝̗͇͇̈́̄͌̈́͊̌̋͋̑̌̕͘͘ơ̵̢̰̱̟͑̀̂͗́̈́̀  https://example.com/ discord.gg/evilserver";
+
+    pub(crate) fn mention() -> Mention {
+        Mention {
+            bot: false,
+            id: USER_ID,
+            discriminator: 0,
+            name: "test".to_string(),
+            public_flags: UserFlags::empty(),
+            avatar: None,
+            member: None,
+        }
+    }
 
     pub(crate) fn message(content: &'static str) -> MessageInfo<'static> {
         MessageInfo {
