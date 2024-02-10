@@ -1,6 +1,8 @@
 use std::{borrow::Cow, sync::Arc};
 
 use tokio::sync::RwLock;
+use twilight_mention::Mention as MentionTrait;
+use twilight_model::channel::message::Mention;
 
 use crate::{
     action::MessageAction,
@@ -16,6 +18,25 @@ pub(crate) struct MessageFilterFailure {
     pub(crate) actions: Vec<MessageAction>,
     pub(crate) filter_name: String,
     pub(crate) context: &'static str,
+}
+
+pub(crate) fn clean_message_mentions(content: &str, mentions: &Vec<Mention>) -> String {
+    let mut message_content = content.to_string();
+
+    for mention in mentions {
+        let display_name = if let Some(member) = &mention.member {
+            member.nick.as_deref().unwrap_or(&mention.name)
+        } else {
+            &mention.name
+        };
+
+        let clean_mention = format!("@{}", display_name);
+        let raw_mention = mention.id.mention().to_string();
+
+        message_content = message_content.replace(&raw_mention, &clean_mention);
+    }
+
+    message_content
 }
 
 fn format_message_preview(format_string: String, content: &str) -> String {
@@ -801,5 +822,18 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
                 }]
             })
         );
+    }
+
+    #[test]
+    fn clean_message_mentions() {
+        let mention = crate::model::test::mention();
+        let name = mention.name.clone();
+
+        let result = super::clean_message_mentions(
+            &format!("Hey <@{}>", mention.id),
+            &vec![mention],
+        );
+
+        assert_eq!(result, format!("Hey @{}", name));
     }
 }

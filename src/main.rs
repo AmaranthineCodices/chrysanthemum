@@ -474,6 +474,8 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         }
     };
 
+    let clean_message_content = crate::message::clean_message_mentions(&message.content, &message.mentions);
+
     let message_info = MessageInfo {
         id: message.id,
         author_id: message.author.id,
@@ -481,7 +483,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         timestamp: message.timestamp,
         author_is_bot: message.author.bot,
         author_roles: &member.roles,
-        content: &message.content,
+        content: &clean_message_content,
         attachments: &message.attachments,
         stickers: &message.sticker_items,
     };
@@ -660,12 +662,17 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                 }
             };
 
+            let clean_message_content = crate::message::clean_message_mentions(
+                content,
+                update.mentions.as_ref().unwrap_or(&vec![])
+            );
+
             let message_info = MessageInfo {
                 id: update.id,
                 author_id,
                 author_is_bot,
                 author_roles: &author_roles[..],
-                content,
+                content: &clean_message_content,
                 channel_id: update.channel_id,
                 timestamp,
                 attachments: &attachments[..],
