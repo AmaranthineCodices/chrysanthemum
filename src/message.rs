@@ -20,15 +20,13 @@ pub(crate) struct MessageFilterFailure {
     pub(crate) context: &'static str,
 }
 
-pub(crate) fn clean_mentions(content: &str, mentions: &Vec<Mention>) -> String {
+pub(crate) fn clean_mentions(content: &str, mentions: &[Mention]) -> String {
     let mut message_content = content.to_string();
 
     for mention in mentions {
-        let display_name = if let Some(member) = &mention.member {
-            member.nick.as_deref().unwrap_or(&mention.name)
-        } else {
-            &mention.name
-        };
+        let display_name = mention.member.as_ref()
+            .and_then(|member| member.nick.as_deref())
+            .unwrap_or(&mention.name);
 
         let clean_mention = format!("@{}", display_name);
         let raw_mention = mention.id.mention().to_string();
@@ -832,7 +830,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
         let name = mention.name.clone();
 
         let result =
-            super::clean_mentions(&format!("Hey {}", mention.id.mention()), &vec![mention]);
+            super::clean_mentions(&format!("Hey {}", mention.id.mention()), &[mention]);
 
         assert_eq!(result, format!("Hey @{}", name));
     }
