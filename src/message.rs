@@ -233,7 +233,7 @@ mod test {
     use tokio::sync::RwLock;
     use twilight_model::id::Id;
 
-    use super::MentionTrait;
+    use twilight_mention::Mention as MentionTrait;
     use super::MessageFilterFailure;
 
     use crate::{
