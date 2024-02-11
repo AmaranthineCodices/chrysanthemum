@@ -664,7 +664,7 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
 
             let clean_message_content = crate::message::clean_mentions(
                 content,
-                update.mentions.as_ref().unwrap_or(&vec![]),
+                update.mentions.as_deref().unwrap_or(&[]),
             );
 
             let message_info = MessageInfo {
