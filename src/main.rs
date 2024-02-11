@@ -474,7 +474,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         }
     };
 
-    let clean_message_content = crate::message::clean_message_mentions(&message.content, &message.mentions);
+    let clean_message_content = crate::message::clean_mentions(&message.content, &message.mentions);
 
     let message_info = MessageInfo {
         id: message.id,
@@ -662,9 +662,9 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                 }
             };
 
-            let clean_message_content = crate::message::clean_message_mentions(
+            let clean_message_content = crate::message::clean_mentions(
                 content,
-                update.mentions.as_ref().unwrap_or(&vec![])
+                update.mentions.as_ref().unwrap_or(&vec![]),
             );
 
             let message_info = MessageInfo {

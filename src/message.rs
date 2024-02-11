@@ -20,7 +20,7 @@ pub(crate) struct MessageFilterFailure {
     pub(crate) context: &'static str,
 }
 
-pub(crate) fn clean_message_mentions(content: &str, mentions: &Vec<Mention>) -> String {
+pub(crate) fn clean_mentions(content: &str, mentions: &Vec<Mention>) -> String {
     let mut message_content = content.to_string();
 
     for mention in mentions {
@@ -831,10 +831,8 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
         let mention = crate::model::test::mention();
         let name = mention.name.clone();
 
-        let result = super::clean_message_mentions(
-            &format!("Hey {}", mention.id.mention()),
-            &vec![mention],
-        );
+        let result =
+            super::clean_mentions(&format!("Hey {}", mention.id.mention()), &vec![mention]);
 
         assert_eq!(result, format!("Hey @{}", name));
     }

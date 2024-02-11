@@ -33,13 +33,13 @@ pub(crate) struct ReactionInfo<'a> {
 #[cfg(test)]
 pub(crate) mod test {
     use twilight_model::{
-        channel::message::ReactionType,
         channel::message::Mention,
-        user::UserFlags,
+        channel::message::ReactionType,
         id::{
             marker::{ChannelMarker, MessageMarker, UserMarker},
             Id,
         },
+        user::UserFlags,
         util::datetime::Timestamp,
     };
 
