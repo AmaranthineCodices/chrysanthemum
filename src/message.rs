@@ -20,8 +20,12 @@ pub(crate) struct MessageFilterFailure {
     pub(crate) context: &'static str,
 }
 
-pub(crate) fn clean_mentions(content: &str, mentions: &[Mention]) -> String {
-    let mut message_content = content.to_string();
+pub(crate) fn clean_mentions<'a>(content: &'a str, mentions: &[Mention]) -> Cow<'a, str> {
+    if mentions.is_empty() {
+        return Cow::Borrowed(content);
+    }
+
+    let mut message_content = content.to_owned();
 
     for mention in mentions {
         let display_name = mention.member.as_ref()
@@ -34,7 +38,7 @@ pub(crate) fn clean_mentions(content: &str, mentions: &[Mention]) -> String {
         message_content = message_content.replace(&raw_mention, &clean_mention);
     }
 
-    message_content
+    Cow::Owned(message_content)
 }
 
 fn format_message_preview(format_string: String, content: &str) -> String {
@@ -827,10 +831,11 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
     #[test]
     fn clean_message_mentions() {
         let mention = crate::model::test::mention();
+        let message = format!("Hey {}", mention.id.mention());
         let name = mention.name.clone();
 
         let result =
-            super::clean_mentions(&format!("Hey {}", mention.id.mention()), &[mention]);
+            super::clean_mentions(message.as_str(), &[mention]);
 
         assert_eq!(result, format!("Hey @{}", name));
     }
