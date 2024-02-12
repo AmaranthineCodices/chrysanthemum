@@ -28,7 +28,9 @@ pub(crate) fn clean_mentions<'a>(content: &'a str, mentions: &[Mention]) -> Cow<
     let mut message_content = content.to_owned();
 
     for mention in mentions {
-        let display_name = mention.member.as_ref()
+        let display_name = mention
+            .member
+            .as_ref()
             .and_then(|member| member.nick.as_deref())
             .unwrap_or(&mention.name);
 
@@ -237,8 +239,8 @@ mod test {
     use tokio::sync::RwLock;
     use twilight_model::id::Id;
 
-    use twilight_mention::Mention as MentionTrait;
     use super::MessageFilterFailure;
+    use twilight_mention::Mention as MentionTrait;
 
     use crate::{
         action::MessageAction,
@@ -834,8 +836,7 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
         let message = format!("Hey {}", mention.id.mention());
         let name = mention.name.clone();
 
-        let result =
-            super::clean_mentions(message.as_str(), &[mention]);
+        let result = super::clean_mentions(message.as_str(), &[mention]);
 
         assert_eq!(result, format!("Hey @{}", name));
     }
