@@ -130,8 +130,7 @@ fn validate_configs() -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     color_eyre::install()?;
     init_tracing();
     dotenv::dotenv().ok();
@@ -188,7 +187,7 @@ async fn main() -> Result<()> {
 
     let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
 
-    // tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
+    tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
 
     shard.start().await?;
 
@@ -249,7 +248,7 @@ async fn main() -> Result<()> {
             }
         }
     }
-    // })
+    })
 }
 
 async fn handle_event_wrapper(event: Event, state: State) {
