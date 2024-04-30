@@ -5,6 +5,7 @@ use twilight_http::{
 use twilight_mention::Mention;
 use twilight_model::{
     channel::message::ReactionType,
+    util::Timestamp,
     id::{
         marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
         Id,
@@ -13,7 +14,6 @@ use twilight_model::{
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
 use eyre::Result;
-use twilight_model::util::Timestamp;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum MessageAction {
