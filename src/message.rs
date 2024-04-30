@@ -82,6 +82,47 @@ fn map_filter_action_to_action(
                 requires_armed: *requires_armed,
             }
         }
+        MessageFilterAction::Ban {
+            delete_message_seconds,
+            reason,
+        } => {
+            let formatted_content = reason.replace("$USER_ID", &message.author_id.to_string());
+            let formatted_content = formatted_content.replace("$FILTER_REASON", filter_reason);
+
+            let formatted_content = format_message_preview(formatted_content, message.content);
+
+            MessageAction::Ban {
+                user_id: message.author_id,
+                guild_id: message.guild_id,
+                delete_message_seconds: *delete_message_seconds,
+                reason: formatted_content,
+            }
+        }
+        MessageFilterAction::Kick { reason } => {
+            let formatted_content = reason.replace("$USER_ID", &message.author_id.to_string());
+            let formatted_content = formatted_content.replace("$FILTER_REASON", filter_reason);
+
+            let formatted_content = format_message_preview(formatted_content, message.content);
+
+            MessageAction::Kick {
+                user_id: message.author_id,
+                guild_id: message.guild_id,
+                reason: formatted_content,
+            }
+        }
+        MessageFilterAction::Timeout { duration, reason } => {
+            let formatted_content = reason.replace("$USER_ID", &message.author_id.to_string());
+            let formatted_content = formatted_content.replace("$FILTER_REASON", filter_reason);
+
+            let formatted_content = format_message_preview(formatted_content, message.content);
+
+            MessageAction::Timeout {
+                user_id: message.author_id,
+                guild_id: message.guild_id,
+                duration: *duration,
+                reason: formatted_content,
+            }
+        }
     }
 }
 
