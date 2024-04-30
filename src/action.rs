@@ -5,11 +5,11 @@ use twilight_http::{
 use twilight_mention::Mention;
 use twilight_model::{
     channel::message::ReactionType,
-    util::Timestamp,
     id::{
         marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
         Id,
     },
+    util::Timestamp,
 };
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
