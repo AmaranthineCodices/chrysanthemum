@@ -73,23 +73,19 @@ impl MessageAction {
                 delete_message_seconds,
                 reason,
             } => {
-                if let Some(guild_id) = guild_id {
-                    http.create_ban(*guild_id, *user_id)
-                        .delete_message_seconds(*delete_message_seconds)?
-                        .reason(reason)?
-                        .await?;
-                }
+                http.create_ban(*guild_id, *user_id)
+                    .delete_message_seconds(*delete_message_seconds)?
+                    .reason(reason)?
+                    .await?;
             }
             Self::Kick {
                 user_id,
                 guild_id,
                 reason,
             } => {
-                if let Some(guild_id) = guild_id {
-                    http.remove_guild_member(*guild_id, *user_id)
-                        .reason(reason)?
-                        .await?;
-                }
+                http.remove_guild_member(*guild_id, *user_id)
+                    .reason(reason)?
+                    .await?;
             }
             Self::Timeout {
                 user_id,
@@ -97,15 +93,13 @@ impl MessageAction {
                 duration,
                 reason,
             } => {
-                if let Some(guild_id) = guild_id {
-                    let timeout_expires_at =
-                        Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
+                let timeout_expires_at =
+                    Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
 
-                    http.update_guild_member(*guild_id, *user_id)
-                        .communication_disabled_until(Some(timeout_expires_at))?
-                        .reason(reason)?
-                        .await?;
-                }
+                http.update_guild_member(*guild_id, *user_id)
+                    .communication_disabled_until(Some(timeout_expires_at))?
+                    .reason(reason)?
+                    .await?;
             }
             Self::SendLog {
                 to,
@@ -222,23 +216,19 @@ impl ReactionAction {
                 delete_message_seconds,
                 reason,
             } => {
-                if let Some(guild_id) = guild_id {
-                    http.create_ban(*guild_id, *user_id)
-                        .delete_message_seconds(*delete_message_seconds)?
-                        .reason(reason)?
-                        .await?;
-                }
+                http.create_ban(*guild_id, *user_id)
+                    .delete_message_seconds(*delete_message_seconds)?
+                    .reason(reason)?
+                    .await?;
             }
             Self::Kick {
                 user_id,
                 guild_id,
                 reason,
             } => {
-                if let Some(guild_id) = guild_id {
-                    http.remove_guild_member(*guild_id, *user_id)
-                        .reason(reason)?
-                        .await?;
-                }
+                http.remove_guild_member(*guild_id, *user_id)
+                    .reason(reason)?
+                    .await?;
             }
             Self::Timeout {
                 user_id,
@@ -246,15 +236,13 @@ impl ReactionAction {
                 duration,
                 reason,
             } => {
-                if let Some(guild_id) = guild_id {
-                    let timeout_expires_at =
-                        Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
+                let timeout_expires_at =
+                    Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
 
-                    http.update_guild_member(*guild_id, *user_id)
-                        .communication_disabled_until(Some(timeout_expires_at))?
-                        .reason(reason)?
-                        .await?;
-                }
+                http.update_guild_member(*guild_id, *user_id)
+                    .communication_disabled_until(Some(timeout_expires_at))?
+                    .reason(reason)?
+                    .await?;
             }
             Self::SendLog {
                 to,
