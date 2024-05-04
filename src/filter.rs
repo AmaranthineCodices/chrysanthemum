@@ -992,7 +992,7 @@ mod test {
                 id: Id::new(1),
                 author_id: Id::new(1),
                 channel_id: Id::new(1),
-                guild_id: Some(Id::new(1)),
+                guild_id: Id::new(1),
                 author_roles: &[],
                 content: "test message https://discord.gg/ ||spoiler|| 💟 <@123>",
                 timestamp: Timestamp::from_secs(100).unwrap(),

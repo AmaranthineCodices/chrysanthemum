@@ -28,18 +28,18 @@ pub(crate) enum MessageAction {
     },
     Ban {
         user_id: Id<UserMarker>,
-        guild_id: Option<Id<GuildMarker>>,
+        guild_id: Id<GuildMarker>,
         delete_message_seconds: u32,
         reason: String,
     },
     Kick {
         user_id: Id<UserMarker>,
-        guild_id: Option<Id<GuildMarker>>,
+        guild_id: Id<GuildMarker>,
         reason: String,
     },
     Timeout {
         user_id: Id<UserMarker>,
-        guild_id: Option<Id<GuildMarker>>,
+        guild_id: Id<GuildMarker>,
         reason: String,
         duration: i64,
     },
@@ -167,18 +167,18 @@ pub(crate) enum ReactionAction {
     },
     Ban {
         user_id: Id<UserMarker>,
-        guild_id: Option<Id<GuildMarker>>,
+        guild_id: Id<GuildMarker>,
         delete_message_seconds: u32,
         reason: String,
     },
     Kick {
         user_id: Id<UserMarker>,
-        guild_id: Option<Id<GuildMarker>>,
+        guild_id: Id<GuildMarker>,
         reason: String,
     },
     Timeout {
         user_id: Id<UserMarker>,
-        guild_id: Option<Id<GuildMarker>>,
+        guild_id: Id<GuildMarker>,
         reason: String,
         duration: i64,
     },

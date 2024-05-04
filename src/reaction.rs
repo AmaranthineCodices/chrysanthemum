@@ -175,18 +175,18 @@ mod test {
                     },
                     ReactionAction::Ban {
                         user_id: crate::model::test::USER_ID,
-                        guild_id: Some(crate::model::test::GUILD_ID),
+                        guild_id: crate::model::test::GUILD_ID,
                         delete_message_seconds: 0,
                         reason: "reacted with denied emoji `🍆`".to_string(),
                     },
                     ReactionAction::Kick {
                         user_id: crate::model::test::USER_ID,
-                        guild_id: Some(crate::model::test::GUILD_ID),
+                        guild_id: crate::model::test::GUILD_ID,
                         reason: "reacted with denied emoji `🍆`".to_string(),
                     },
                     ReactionAction::Timeout {
                         user_id: crate::model::test::USER_ID,
-                        guild_id: Some(crate::model::test::GUILD_ID),
+                        guild_id: crate::model::test::GUILD_ID,
                         reason: "reacted with denied emoji `🍆`".to_string(),
                         duration: 60_000,
                     },

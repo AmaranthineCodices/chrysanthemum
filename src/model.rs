@@ -13,7 +13,7 @@ pub(crate) struct MessageInfo<'a> {
     pub(crate) id: Id<MessageMarker>,
     pub(crate) author_id: Id<UserMarker>,
     pub(crate) channel_id: Id<ChannelMarker>,
-    pub(crate) guild_id: Option<Id<GuildMarker>>,
+    pub(crate) guild_id: Id<GuildMarker>,
     pub(crate) author_roles: &'a [Id<RoleMarker>],
     pub(crate) content: &'a str,
     pub(crate) timestamp: Timestamp,
@@ -28,7 +28,7 @@ pub(crate) struct ReactionInfo<'a> {
     pub(crate) author_id: Id<UserMarker>,
     pub(crate) message_id: Id<MessageMarker>,
     pub(crate) channel_id: Id<ChannelMarker>,
-    pub(crate) guild_id: Option<Id<GuildMarker>>,
+    pub(crate) guild_id: Id<GuildMarker>,
     pub(crate) reaction: ReactionType,
 }
 
@@ -62,7 +62,7 @@ pub(crate) mod test {
             id: MESSAGE_ID,
             author_id: USER_ID,
             channel_id: CHANNEL_ID,
-            guild_id: Some(GUILD_ID),
+            guild_id: GUILD_ID,
             author_roles: &[],
             content: content,
             timestamp: Timestamp::from_secs(100).unwrap(),
@@ -84,7 +84,7 @@ pub(crate) mod test {
             author_id: USER_ID,
             channel_id: CHANNEL_ID,
             message_id: MESSAGE_ID,
-            guild_id: Some(GUILD_ID),
+            guild_id: GUILD_ID,
             reaction: ReactionType::Unicode {
                 name: rxn.to_string(),
             },
