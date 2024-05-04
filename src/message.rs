@@ -1,6 +1,8 @@
 use std::{borrow::Cow, sync::Arc};
 
 use tokio::sync::RwLock;
+use twilight_mention::Mention as MentionTrait;
+use twilight_model::channel::message::Mention;
 
 use crate::{
     action::MessageAction,
@@ -16,6 +18,29 @@ pub(crate) struct MessageFilterFailure {
     pub(crate) actions: Vec<MessageAction>,
     pub(crate) filter_name: String,
     pub(crate) context: &'static str,
+}
+
+pub(crate) fn clean_mentions<'a>(content: &'a str, mentions: &[Mention]) -> Cow<'a, str> {
+    if mentions.is_empty() {
+        return Cow::Borrowed(content);
+    }
+
+    let mut message_content = content.to_owned();
+
+    for mention in mentions {
+        let display_name = mention
+            .member
+            .as_ref()
+            .and_then(|member| member.nick.as_deref())
+            .unwrap_or(&mention.name);
+
+        let clean_mention = format!("@{}", display_name);
+        let raw_mention = mention.id.mention().to_string();
+
+        message_content = message_content.replace(&raw_mention, &clean_mention);
+    }
+
+    Cow::Owned(message_content)
 }
 
 fn format_message_preview(format_string: String, content: &str) -> String {
@@ -256,6 +281,8 @@ mod test {
     use twilight_model::id::Id;
 
     use super::MessageFilterFailure;
+    use twilight_mention::Mention as MentionTrait;
+
     use crate::{
         action::MessageAction,
         config::{MessageFilter, MessageFilterAction, MessageFilterRule, Scoping, SpamFilter},
@@ -842,5 +869,16 @@ asdf bad message z̷̢͈͓̥̤͕̰̤̔͒̄̂̒͋̔̀̒͑̈̅̍̐a̶̡̘̬̯̩̿�
                 }]
             })
         );
+    }
+
+    #[test]
+    fn clean_message_mentions() {
+        let mention = crate::model::test::mention();
+        let message = format!("Hey {}", mention.id.mention());
+        let name = mention.name.clone();
+
+        let result = super::clean_mentions(message.as_str(), &[mention]);
+
+        assert_eq!(result, format!("Hey @{}", name));
     }
 }

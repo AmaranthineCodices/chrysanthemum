@@ -474,6 +474,8 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         }
     };
 
+    let clean_message_content = crate::message::clean_mentions(&message.content, &message.mentions);
+
     let message_info = MessageInfo {
         id: message.id,
         author_id: message.author.id,
@@ -483,7 +485,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         timestamp: message.timestamp,
         author_is_bot: message.author.bot,
         author_roles: &member.roles,
-        content: &message.content,
+        content: &clean_message_content,
         attachments: &message.attachments,
         stickers: &message.sticker_items,
     };
@@ -666,6 +668,9 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                 }
             };
 
+            let clean_message_content =
+                crate::message::clean_mentions(content, update.mentions.as_deref().unwrap_or(&[]));
+
             let message_info = MessageInfo {
                 id: update.id,
                 author_id,
@@ -673,7 +678,7 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                 // We can assume guild_id exists since the DM intent is disabled
                 guild_id: update.guild_id.unwrap(),
                 author_roles: &author_roles[..],
-                content,
+                content: &clean_message_content,
                 channel_id: update.channel_id,
                 timestamp,
                 attachments: &attachments[..],
