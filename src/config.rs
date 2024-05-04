@@ -105,7 +105,9 @@ pub enum MessageFilterAction {
     },
     /// Ban the user who sent the offending piece of content.
     Ban {
+        // Reason used in the ban's audit log.
         reason: String,
+        // The period over which to remove the banned user's messages, in seconds.
         delete_message_seconds: u32,
     },
     /// Kick the user who sent the offending piece of content.
