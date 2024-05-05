@@ -36,6 +36,41 @@ fn map_filter_action_to_action(
                 requires_armed: *requires_armed,
             }
         }
+        MessageFilterAction::Ban {
+            delete_message_seconds,
+            reason,
+        } => {
+            let formatted_reason = reason.replace("$FILTER_REASON", filter_reason);
+            let formatted_reason = formatted_reason.replace("$FILTER_REASON", filter_reason);
+
+            ReactionAction::Ban {
+                user_id: reaction.author_id,
+                guild_id: reaction.guild_id,
+                delete_message_seconds: *delete_message_seconds,
+                reason: formatted_reason,
+            }
+        }
+        MessageFilterAction::Kick { reason } => {
+            let formatted_reason = reason.replace("$FILTER_REASON", filter_reason);
+            let formatted_reason = formatted_reason.replace("$FILTER_REASON", filter_reason);
+
+            ReactionAction::Kick {
+                user_id: reaction.author_id,
+                guild_id: reaction.guild_id,
+                reason: formatted_reason,
+            }
+        }
+        MessageFilterAction::Timeout { duration, reason } => {
+            let formatted_reason = reason.replace("$FILTER_REASON", filter_reason);
+            let formatted_reason = formatted_reason.replace("$FILTER_REASON", filter_reason);
+
+            ReactionAction::Timeout {
+                user_id: reaction.author_id,
+                guild_id: reaction.guild_id,
+                reason: formatted_reason,
+                duration: *duration,
+            }
+        }
         MessageFilterAction::SendLog { channel_id } => ReactionAction::SendLog {
             to: *channel_id,
             filter_name: filter_name.to_string(),
@@ -104,6 +139,17 @@ mod test {
             scoping: None,
             actions: Some(vec![
                 MessageFilterAction::Delete,
+                MessageFilterAction::Ban {
+                    delete_message_seconds: 0,
+                    reason: "$FILTER_REASON".to_string(),
+                },
+                MessageFilterAction::Kick {
+                    reason: "$FILTER_REASON".to_string(),
+                },
+                MessageFilterAction::Timeout {
+                    duration: 60_000,
+                    reason: "$FILTER_REASON".to_string(),
+                },
                 MessageFilterAction::SendLog {
                     channel_id: Id::new(3),
                 },
@@ -126,6 +172,23 @@ mod test {
                         message_id: crate::model::test::MESSAGE_ID,
                         channel_id: crate::model::test::CHANNEL_ID,
                         reaction: rxn.reaction.clone(),
+                    },
+                    ReactionAction::Ban {
+                        user_id: crate::model::test::USER_ID,
+                        guild_id: crate::model::test::GUILD_ID,
+                        delete_message_seconds: 0,
+                        reason: "reacted with denied emoji `🍆`".to_string(),
+                    },
+                    ReactionAction::Kick {
+                        user_id: crate::model::test::USER_ID,
+                        guild_id: crate::model::test::GUILD_ID,
+                        reason: "reacted with denied emoji `🍆`".to_string(),
+                    },
+                    ReactionAction::Timeout {
+                        user_id: crate::model::test::USER_ID,
+                        guild_id: crate::model::test::GUILD_ID,
+                        reason: "reacted with denied emoji `🍆`".to_string(),
+                        duration: 60_000,
                     },
                     ReactionAction::SendLog {
                         to: Id::new(3),

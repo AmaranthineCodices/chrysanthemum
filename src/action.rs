@@ -1,11 +1,15 @@
-use twilight_http::{request::channel::reaction::RequestReactionType, Client};
+use twilight_http::{
+    request::{channel::reaction::RequestReactionType, AuditLogReason},
+    Client,
+};
 use twilight_mention::Mention;
 use twilight_model::{
     channel::message::ReactionType,
     id::{
-        marker::{ChannelMarker, MessageMarker, UserMarker},
+        marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
         Id,
     },
+    util::Timestamp,
 };
 use twilight_util::builder::embed::{EmbedBuilder, EmbedFieldBuilder};
 
@@ -21,6 +25,23 @@ pub(crate) enum MessageAction {
         to: Id<ChannelMarker>,
         content: String,
         requires_armed: bool,
+    },
+    Ban {
+        user_id: Id<UserMarker>,
+        guild_id: Id<GuildMarker>,
+        delete_message_seconds: u32,
+        reason: String,
+    },
+    Kick {
+        user_id: Id<UserMarker>,
+        guild_id: Id<GuildMarker>,
+        reason: String,
+    },
+    Timeout {
+        user_id: Id<UserMarker>,
+        guild_id: Id<GuildMarker>,
+        reason: String,
+        duration: i64,
     },
     SendLog {
         to: Id<ChannelMarker>,
@@ -45,6 +66,40 @@ impl MessageAction {
             }
             Self::SendMessage { to, content, .. } => {
                 http.create_message(*to).content(content)?.await?;
+            }
+            Self::Ban {
+                user_id,
+                guild_id,
+                delete_message_seconds,
+                reason,
+            } => {
+                http.create_ban(*guild_id, *user_id)
+                    .delete_message_seconds(*delete_message_seconds)?
+                    .reason(reason)?
+                    .await?;
+            }
+            Self::Kick {
+                user_id,
+                guild_id,
+                reason,
+            } => {
+                http.remove_guild_member(*guild_id, *user_id)
+                    .reason(reason)?
+                    .await?;
+            }
+            Self::Timeout {
+                user_id,
+                guild_id,
+                duration,
+                reason,
+            } => {
+                let timeout_expires_at =
+                    Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
+
+                http.update_guild_member(*guild_id, *user_id)
+                    .communication_disabled_until(Some(timeout_expires_at))?
+                    .reason(reason)?
+                    .await?;
             }
             Self::SendLog {
                 to,
@@ -83,6 +138,9 @@ impl MessageAction {
     pub(crate) fn requires_armed(&self) -> bool {
         match self {
             MessageAction::Delete { .. } => true,
+            MessageAction::Ban { .. } => true,
+            MessageAction::Kick { .. } => true,
+            MessageAction::Timeout { .. } => true,
             MessageAction::SendMessage { requires_armed, .. } => *requires_armed,
             _ => false,
         }
@@ -100,6 +158,23 @@ pub(crate) enum ReactionAction {
         to: Id<ChannelMarker>,
         content: String,
         requires_armed: bool,
+    },
+    Ban {
+        user_id: Id<UserMarker>,
+        guild_id: Id<GuildMarker>,
+        delete_message_seconds: u32,
+        reason: String,
+    },
+    Kick {
+        user_id: Id<UserMarker>,
+        guild_id: Id<GuildMarker>,
+        reason: String,
+    },
+    Timeout {
+        user_id: Id<UserMarker>,
+        guild_id: Id<GuildMarker>,
+        reason: String,
+        duration: i64,
     },
     SendLog {
         to: Id<ChannelMarker>,
@@ -134,6 +209,40 @@ impl ReactionAction {
             }
             Self::SendMessage { to, content, .. } => {
                 http.create_message(*to).content(content)?.await?;
+            }
+            Self::Ban {
+                user_id,
+                guild_id,
+                delete_message_seconds,
+                reason,
+            } => {
+                http.create_ban(*guild_id, *user_id)
+                    .delete_message_seconds(*delete_message_seconds)?
+                    .reason(reason)?
+                    .await?;
+            }
+            Self::Kick {
+                user_id,
+                guild_id,
+                reason,
+            } => {
+                http.remove_guild_member(*guild_id, *user_id)
+                    .reason(reason)?
+                    .await?;
+            }
+            Self::Timeout {
+                user_id,
+                guild_id,
+                duration,
+                reason,
+            } => {
+                let timeout_expires_at =
+                    Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
+
+                http.update_guild_member(*guild_id, *user_id)
+                    .communication_disabled_until(Some(timeout_expires_at))?
+                    .reason(reason)?
+                    .await?;
             }
             Self::SendLog {
                 to,
@@ -181,6 +290,9 @@ impl ReactionAction {
     pub(crate) fn requires_armed(&self) -> bool {
         match self {
             ReactionAction::Delete { .. } => true,
+            ReactionAction::Ban { .. } => true,
+            ReactionAction::Kick { .. } => true,
+            ReactionAction::Timeout { .. } => true,
             ReactionAction::SendMessage { requires_armed, .. } => *requires_armed,
             _ => false,
         }

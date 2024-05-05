@@ -480,6 +480,8 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         id: message.id,
         author_id: message.author.id,
         channel_id: message.channel_id,
+        // We can assume guild_id exists since the DM intent is disabled
+        guild_id: message.guild_id.unwrap(),
         timestamp: message.timestamp,
         author_is_bot: message.author.bot,
         author_roles: &member.roles,
@@ -521,6 +523,8 @@ async fn filter_reaction(rxn: &GatewayReaction, state: State) -> Result<()> {
                 author_id: rxn.user_id,
                 channel_id: rxn.channel_id,
                 message_id: rxn.message_id,
+                // We can assume guild_id exists since the DM intent is disabled
+                guild_id: rxn.guild_id.unwrap(),
                 reaction: rxn.emoji.clone(),
             };
 
@@ -604,6 +608,8 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
     let message_info = MessageInfo {
         id: http_message.id,
         channel_id: http_message.channel_id,
+        // We can assume guild_id exists since the DM intent is disabled
+        guild_id: http_message.guild_id.unwrap(),
         timestamp: http_message.timestamp,
         author_roles: &author_roles[..],
         content: &http_message.content,
@@ -669,6 +675,8 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                 id: update.id,
                 author_id,
                 author_is_bot,
+                // We can assume guild_id exists since the DM intent is disabled
+                guild_id: update.guild_id.unwrap(),
                 author_roles: &author_roles[..],
                 content: &clean_message_content,
                 channel_id: update.channel_id,

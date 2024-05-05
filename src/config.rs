@@ -103,6 +103,23 @@ pub enum MessageFilterAction {
         content: String,
         requires_armed: bool,
     },
+    /// Ban the user who sent the offending piece of content.
+    Ban {
+        // Reason used in the ban's audit log.
+        reason: String,
+        // The period over which to remove the banned user's messages, in seconds.
+        delete_message_seconds: u32,
+    },
+    /// Kick the user who sent the offending piece of content.
+    Kick {
+        reason: String,
+    },
+    /// Timeout the user who sent the offending piece of content.
+    Timeout {
+        reason: String,
+        /// How long to mute the user for, in seconds.
+        duration: i64,
+    },
     SendLog {
         channel_id: Id<ChannelMarker>,
     },

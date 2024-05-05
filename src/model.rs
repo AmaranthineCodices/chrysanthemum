@@ -1,7 +1,7 @@
 use twilight_model::{
     channel::{message::sticker::MessageSticker, message::ReactionType, Attachment},
     id::{
-        marker::{ChannelMarker, MessageMarker, RoleMarker, UserMarker},
+        marker::{ChannelMarker, GuildMarker, MessageMarker, RoleMarker, UserMarker},
         Id,
     },
     util::datetime::Timestamp,
@@ -13,6 +13,7 @@ pub(crate) struct MessageInfo<'a> {
     pub(crate) id: Id<MessageMarker>,
     pub(crate) author_id: Id<UserMarker>,
     pub(crate) channel_id: Id<ChannelMarker>,
+    pub(crate) guild_id: Id<GuildMarker>,
     pub(crate) author_roles: &'a [Id<RoleMarker>],
     pub(crate) content: &'a str,
     pub(crate) timestamp: Timestamp,
@@ -27,6 +28,7 @@ pub(crate) struct ReactionInfo<'a> {
     pub(crate) author_id: Id<UserMarker>,
     pub(crate) message_id: Id<MessageMarker>,
     pub(crate) channel_id: Id<ChannelMarker>,
+    pub(crate) guild_id: Id<GuildMarker>,
     pub(crate) reaction: ReactionType,
 }
 
@@ -36,7 +38,7 @@ pub(crate) mod test {
         channel::message::Mention,
         channel::message::ReactionType,
         id::{
-            marker::{ChannelMarker, MessageMarker, UserMarker},
+            marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
             Id,
         },
         user::UserFlags,
@@ -50,6 +52,7 @@ pub(crate) mod test {
     pub(crate) const MESSAGE_ID: Id<MessageMarker> = Id::new(1);
     pub(crate) const CHANNEL_ID: Id<ChannelMarker> = Id::new(2);
     pub(crate) const USER_ID: Id<UserMarker> = Id::new(3);
+    pub(crate) const GUILD_ID: Id<GuildMarker> = Id::new(4);
     pub(crate) const GOOD_CONTENT: &'static str =
         "this is an okay message https://discord.gg/ discord.gg/roblox";
     pub(crate) const BAD_CONTENT: &'static str =
@@ -73,6 +76,7 @@ pub(crate) mod test {
             id: MESSAGE_ID,
             author_id: USER_ID,
             channel_id: CHANNEL_ID,
+            guild_id: GUILD_ID,
             author_roles: &[],
             content: content,
             timestamp: Timestamp::from_secs(100).unwrap(),
@@ -94,6 +98,7 @@ pub(crate) mod test {
             author_id: USER_ID,
             channel_id: CHANNEL_ID,
             message_id: MESSAGE_ID,
+            guild_id: GUILD_ID,
             reaction: ReactionType::Unicode {
                 name: rxn.to_string(),
             },
