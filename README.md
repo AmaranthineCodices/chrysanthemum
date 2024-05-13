@@ -89,6 +89,14 @@ The `regex` filter checks that a message doesn't match any of the provided regex
 ```
 The `zalgo` filter checks for Zalgo text (z̵̼͠a̶̢͎͆͊l̷̬͠g̷̡͇͒o̶̘̓).
 
+#### Activity
+```json
+{
+    "type": "activity"
+}
+```
+The `activity` filter checks for activity invites such as "Join Spotify Party".
+
 #### MIME type
 ```json
 {
