@@ -1,7 +1,7 @@
 use twilight_model::{
     channel::{
-        message::{ReactionType, sticker::MessageSticker},
-        Attachment
+        message::{sticker::MessageSticker, ReactionType},
+        Attachment,
     },
     id::{
         marker::{ChannelMarker, GuildMarker, MessageMarker, RoleMarker, UserMarker},
