@@ -161,6 +161,7 @@ pub enum MessageFilterRule {
         regexes: RegexSet,
     },
     Zalgo,
+    Activity,
     MimeType {
         mode: FilterMode,
         types: Vec<String>,

@@ -260,6 +260,13 @@ impl config::MessageFilterRule {
                     .filter_map(|a| a.content_type.as_deref());
                 filter_values(mode, "content type", &mut attachment_types, types)
             }
+            config::MessageFilterRule::Activity => {
+                if message.has_activity {
+                    Err("contains activity".to_owned())
+                } else {
+                    Ok(())
+                }
+            }
             config::MessageFilterRule::StickerId { mode, stickers } => filter_values(
                 mode,
                 "sticker",
@@ -657,6 +664,19 @@ mod test {
         }
 
         #[test]
+        fn filter_activity() {
+            let rule = MessageFilterRule::Activity;
+            let mut message_with_activity = message(GOOD_CONTENT);
+            message_with_activity.has_activity = true;
+
+            assert_eq!(rule.filter_message(&message(GOOD_CONTENT)), Ok(()));
+            assert_eq!(
+                rule.filter_message(&message_with_activity),
+                Err("contains activity".to_owned())
+            );
+        }
+
+        #[test]
         fn filter_mimetype_deny() {
             let rule = MessageFilterRule::MimeType {
                 mode: FilterMode::DenyList,
@@ -996,6 +1016,7 @@ mod test {
                 author_roles: &[],
                 content: "test message https://discord.gg/ ||spoiler|| 💟 <@123>",
                 timestamp: Timestamp::from_secs(100).unwrap(),
+                has_activity: false,
                 attachments: &[],
                 stickers: &[],
             };

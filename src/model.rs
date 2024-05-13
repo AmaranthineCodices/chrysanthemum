@@ -1,5 +1,8 @@
 use twilight_model::{
-    channel::{message::sticker::MessageSticker, message::ReactionType, Attachment},
+    channel::{
+        message::{ReactionType, sticker::MessageSticker},
+        Attachment
+    },
     id::{
         marker::{ChannelMarker, GuildMarker, MessageMarker, RoleMarker, UserMarker},
         Id,
@@ -19,6 +22,7 @@ pub(crate) struct MessageInfo<'a> {
     pub(crate) timestamp: Timestamp,
     pub(crate) attachments: &'a [Attachment],
     pub(crate) stickers: &'a [MessageSticker],
+    pub(crate) has_activity: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -80,6 +84,7 @@ pub(crate) mod test {
             author_roles: &[],
             content: content,
             timestamp: Timestamp::from_secs(100).unwrap(),
+            has_activity: false,
             attachments: &[],
             stickers: &[],
         }
