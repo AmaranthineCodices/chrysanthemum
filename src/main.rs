@@ -185,10 +185,9 @@ fn main() -> Result<()> {
         | Intents::GUILD_MESSAGE_REACTIONS
         | Intents::MESSAGE_CONTENT;
 
-    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
-
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
 
+    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
     shard.start().await?;
 
     let http = Arc::new(HttpClient::new(discord_token));

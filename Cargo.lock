@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "chrysanthemum"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "chrono",
  "color-eyre",
