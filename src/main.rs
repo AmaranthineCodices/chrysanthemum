@@ -486,6 +486,7 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         author_roles: &member.roles,
         content: &clean_message_content,
         attachments: &message.attachments,
+        has_activity: message.activity.is_some(),
         stickers: &message.sticker_items,
     };
 
@@ -614,6 +615,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         content: &http_message.content,
         attachments: &http_message.attachments,
         stickers: &http_message.sticker_items,
+        has_activity: http_message.activity.is_some(),
         author_id,
         author_is_bot,
     };
@@ -680,6 +682,8 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
                 content: &clean_message_content,
                 channel_id: update.channel_id,
                 timestamp,
+                // Activities cannot be edited into messages, so we can assume there are none.
+                has_activity: false,
                 attachments: &attachments[..],
                 stickers: &sticker_items[..],
             };
