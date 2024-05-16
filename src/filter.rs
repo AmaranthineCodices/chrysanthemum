@@ -29,7 +29,7 @@ static_regex!(
             .unwrap()
 );
 static_regex!(
-    invite_regex = RegexBuilder::new(r"discord.gg/(\w+)")
+    invite_regex = RegexBuilder::new(r"discord.gg/([-\w]+)")
         .case_insensitive(true)
         .build()
         .unwrap()
