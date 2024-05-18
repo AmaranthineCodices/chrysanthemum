@@ -93,13 +93,22 @@ impl MessageAction {
                 duration,
                 reason,
             } => {
-                let timeout_expires_at =
-                    Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
-
-                http.update_guild_member(*guild_id, *user_id)
-                    .communication_disabled_until(Some(timeout_expires_at))?
-                    .reason(reason)?
+                let member = http
+                    .guild_member(*guild_id, *user_id)
+                    .await?
+                    .model()
                     .await?;
+
+                // Only set the timeout if the user isn't already timed out.
+                if member.communication_disabled_until.is_none() {
+                    let timeout_expires_at =
+                        Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
+
+                    http.update_guild_member(*guild_id, *user_id)
+                        .communication_disabled_until(Some(timeout_expires_at))?
+                        .reason(reason)?
+                        .await?;
+                }
             }
             Self::SendLog {
                 to,
@@ -236,13 +245,22 @@ impl ReactionAction {
                 duration,
                 reason,
             } => {
-                let timeout_expires_at =
-                    Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
-
-                http.update_guild_member(*guild_id, *user_id)
-                    .communication_disabled_until(Some(timeout_expires_at))?
-                    .reason(reason)?
+                let member = http
+                    .guild_member(*guild_id, *user_id)
+                    .await?
+                    .model()
                     .await?;
+
+                // Only set the timeout if the user isn't already timed out.
+                if member.communication_disabled_until.is_none() {
+                    let timeout_expires_at =
+                        Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
+
+                    http.update_guild_member(*guild_id, *user_id)
+                        .communication_disabled_until(Some(timeout_expires_at))?
+                        .reason(reason)?
+                        .await?;
+                }
             }
             Self::SendLog {
                 to,
