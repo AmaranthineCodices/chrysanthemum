@@ -93,7 +93,8 @@ impl MessageAction {
                 duration,
                 reason,
             } => {
-                let member = http.guild_member(*guild_id, *user_id)
+                let member = http
+                    .guild_member(*guild_id, *user_id)
                     .await?
                     .model()
                     .await?;
@@ -244,7 +245,8 @@ impl ReactionAction {
                 duration,
                 reason,
             } => {
-                let member = http.guild_member(*guild_id, *user_id)
+                let member = http
+                    .guild_member(*guild_id, *user_id)
                     .await?
                     .model()
                     .await?;
