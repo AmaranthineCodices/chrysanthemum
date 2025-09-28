@@ -151,7 +151,7 @@ fn map_filter_action_to_action(
     }
 }
 
-#[tracing::instrument(skip(filters, default_scoping, default_actions))]
+#[tracing::instrument(skip_all)]
 fn filter_message(
     filters: &[MessageFilter],
     default_scoping: Option<&Scoping>,
@@ -238,7 +238,7 @@ async fn spam_check_message<'msg>(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[tracing::instrument(skip(spam_config, filters, default_scoping, default_actions, spam_history))]
+#[tracing::instrument(skip_all)]
 pub(crate) async fn filter_and_spam_check_message<'msg>(
     spam_config: Option<&'msg SpamFilter>,
     filters: &'msg [MessageFilter],

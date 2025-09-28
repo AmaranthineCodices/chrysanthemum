@@ -70,8 +70,8 @@ fn init_tracing() {
 fn init_tracing() {
     use tracing_subscriber::prelude::*;
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().json())
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 }
 
@@ -180,7 +180,7 @@ fn main() -> Result<()> {
     })
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip(state, event), fields(kind = ?event.kind()))]
 async fn handle_event(event: Event, state: State) -> Result<()> {
     match event {
         Event::MessageCreate(message) => {
@@ -254,7 +254,7 @@ async fn reload_guild_configs(state: &State) -> Result<(), (Id<GuildMarker>, eyr
     Ok(())
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip(guild_id, message_info, state))]
 async fn filter_message_info<'msg>(
     guild_id: Id<GuildMarker>,
     message_info: &'msg MessageInfo<'_>,
@@ -267,8 +267,6 @@ async fn filter_message_info<'msg>(
             tracing::trace!(?guild_id, author = %message_info.author_id, "Skipping message filtration because message was sent by a bot and include_bots is false for this guild");
             return Ok(());
         }
-
-        tracing::trace!(?message_info, "Filtering message");
 
         if let Some(message_filters) = &guild_config.messages {
             let now = (Utc::now().timestamp_millis() as u64) * 1000;
@@ -298,7 +296,7 @@ async fn filter_message_info<'msg>(
                     // since we'll get a 404 on subsequent requests.
                     if let MessageAction::Delete { .. } = action {
                         if deleted {
-                            tracing::trace!(?action, "Skipping duplicate delete action");
+                            tracing::trace!("Skipping duplicate delete action");
                             continue;
                         }
 
@@ -306,16 +304,16 @@ async fn filter_message_info<'msg>(
                     }
 
                     if action.requires_armed() && !armed {
-                        tracing::trace!(?action, "Skipping execution because we are not armed");
+                        tracing::trace!("Skipping action execution because we are not armed");
                         continue;
                     }
 
                     if let Err(action_err) = action.execute(&state.http).await {
-                        tracing::warn!(?action, ?action_err, "Error executing action");
+                        tracing::warn!(?action_err, "Error executing action");
                     }
                 }
 
-                tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, "Filtration completed, all actions executed");
+                tracing::trace!("Filtration completed, all actions executed");
             }
         }
     }
@@ -323,7 +321,7 @@ async fn filter_message_info<'msg>(
     Ok(())
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all, fields(id = %message.id.get()))]
 async fn filter_message(message: &Message, state: State) -> Result<()> {
     let guild_id = match message.guild_id {
         Some(id) => id,
@@ -478,7 +476,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
     filter_message_info(guild_id, &message_info, state, "message edit").await
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip_all, fields(id = %update.id.get()))]
 async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()> {
     let guild_id = match update.guild_id {
         Some(id) => id,
