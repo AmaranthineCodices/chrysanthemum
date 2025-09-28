@@ -320,25 +320,9 @@ pub struct GuildConfig {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct InfluxConfig {
-    pub url: String,
-    pub database: String,
-    pub token: String,
-    pub report_every_n: usize,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct SentryConfig {
-    pub url: String,
-    pub sample_rate: Option<f32>,
-}
-
-#[derive(Deserialize, Debug)]
 pub struct Config {
     pub guild_config_dir: PathBuf,
     pub active_guilds: Vec<Id<GuildMarker>>,
-    pub influx: Option<InfluxConfig>,
-    pub sentry: Option<SentryConfig>,
     pub reload_interval: Option<u64>,
     pub armed_by_default: bool,
 }

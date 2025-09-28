@@ -1,18 +1,16 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use action::{MessageAction, ReactionAction};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use filter::SpamHistory;
-use influxdb::{InfluxDbWriteable, WriteQuery};
-use reqwest::header::HeaderValue;
-use tokio::sync::RwLock;
 
 use futures::stream::StreamExt;
 
+use tokio::sync::RwLock;
 use tracing::Instrument;
 
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
@@ -52,35 +50,7 @@ struct State {
     application_id: Arc<RwLock<Option<Id<ApplicationMarker>>>>,
     cache: Arc<InMemoryCache>,
     spam_history: Arc<RwLock<SpamHistory>>,
-    influx_client: Arc<Option<influxdb::Client>>,
-    influx_report_count: Arc<AtomicUsize>,
     armed: Arc<AtomicBool>,
-}
-
-#[derive(Debug, InfluxDbWriteable)]
-struct EventTimingReport {
-    time: DateTime<Utc>,
-    guild: String,
-    channel: String,
-    time_taken: f64,
-    #[influxdb(tag)]
-    action_kind: &'static str,
-    #[influxdb(tag)]
-    development: bool,
-}
-
-#[derive(Debug, InfluxDbWriteable)]
-struct MessageFilterReport {
-    time: DateTime<Utc>,
-    guild: String,
-    channel: String,
-}
-
-#[derive(Debug, InfluxDbWriteable)]
-struct ReactionFilterReport {
-    time: DateTime<Utc>,
-    guild: String,
-    channel: String,
 }
 
 #[cfg(debug_assertions)]
@@ -102,21 +72,7 @@ fn init_tracing() {
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().json())
-        .with(sentry_tracing::layer())
         .init();
-}
-
-async fn send_influx_point(state: &State, point: &WriteQuery) -> Result<()> {
-    if let Some(influx_client) = state.influx_client.as_ref() {
-        if let Some(influx_cfg) = state.cfg.influx.as_ref() {
-            let count = state.influx_report_count.fetch_add(1, Ordering::Relaxed);
-            if count % influx_cfg.report_every_n == 0 {
-                influx_client.query(point).await?;
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn validate_configs() -> Result<()> {
@@ -151,35 +107,6 @@ fn main() -> Result<()> {
     let cfg_json = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg: Config = serde_yaml::from_str(&cfg_json).expect("Couldn't deserialize config");
 
-    let _sentry_guard = cfg.sentry.as_ref().map(|sentry_config| {
-        sentry::init((
-            sentry_config.url.clone(),
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                traces_sample_rate: sentry_config.sample_rate.unwrap_or(0.01),
-                debug: cfg!(debug_assertions),
-                ..Default::default()
-            },
-        ))
-    });
-
-    let influx_client = if let Some(influx_cfg) = &cfg.influx {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            HeaderValue::from_str(&format!("Token {}", &influx_cfg.token)).unwrap(),
-        );
-        let reqwest_client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()
-            .unwrap();
-        let influx_client = influxdb::Client::new(&influx_cfg.url, &influx_cfg.database)
-            .with_http_client(reqwest_client);
-        Some(influx_client)
-    } else {
-        None
-    };
-
     let intents = Intents::GUILD_MESSAGES
         | Intents::GUILD_MEMBERS
         | Intents::GUILD_MESSAGE_REACTIONS
@@ -209,8 +136,6 @@ fn main() -> Result<()> {
         cache: Arc::new(cache),
         application_id: Arc::new(RwLock::new(None)),
         guild_cfgs: Arc::new(RwLock::new(initial_guild_configs)),
-        influx_client: Arc::new(influx_client),
-        influx_report_count: Arc::new(AtomicUsize::new(0)),
     };
 
     tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
@@ -236,7 +161,7 @@ fn main() -> Result<()> {
         tokio::select! {
             Some(event) = events.next() => {
                 state.cache.update(&event);
-                tokio::spawn(handle_event_wrapper(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
+                tokio::spawn(handle_event(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
             },
             _ = interval.tick() => {
                 let result = reload_guild_configs(&state).await;
@@ -250,63 +175,15 @@ fn main() -> Result<()> {
     })
 }
 
-async fn handle_event_wrapper(event: Event, state: State) {
-    let start = Instant::now();
-    let result = handle_event(&event, state.clone()).await;
-    let end = Instant::now();
-    let time = end - start;
-
-    if let Err(report) = result {
-        tracing::error!(result = ?report, event = ?event, "Error handling event");
-    }
-
-    let (guild_id, channel_id, action_kind) = match event {
-        Event::MessageCreate(message) => {
-            let message = message.0;
-
-            (
-                message.guild_id.unwrap(),
-                message.channel_id,
-                "message create",
-            )
-        }
-        Event::MessageUpdate(update) => (
-            update.guild_id.unwrap(),
-            update.channel_id,
-            "message update",
-        ),
-        Event::ReactionAdd(rxn) => {
-            let rxn = rxn.0;
-            (rxn.guild_id.unwrap(), rxn.channel_id, "reaction")
-        }
-        _ => return,
-    };
-
-    let development = cfg!(debug_assertions);
-    let report = EventTimingReport {
-        time: Utc::now(),
-        time_taken: time.as_secs_f64(),
-        guild: guild_id.to_string(),
-        channel: channel_id.to_string(),
-        action_kind,
-        development,
-    };
-
-    let result = send_influx_point(&state, &report.into_query("event_report")).await;
-    if let Err(err) = result {
-        tracing::error!("Unable to send Influx report: {:?}", err);
-    }
-}
-
 #[tracing::instrument(skip(state))]
-async fn handle_event(event: &Event, state: State) -> Result<()> {
+async fn handle_event(event: Event, state: State) -> Result<()> {
     match event {
         Event::MessageCreate(message) => {
             let message = &message.0;
             filter_message(message, state).await?;
         }
         Event::MessageUpdate(update) => {
-            filter_message_edit(update, &state).await?;
+            filter_message_edit(&update, &state).await?;
         }
         Event::ReactionAdd(rxn) => {
             let rxn = &rxn.0;
@@ -434,15 +311,6 @@ async fn filter_message_info<'msg>(
                 }
 
                 tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, "Filtration completed, all actions executed");
-
-                let report = MessageFilterReport {
-                    time: Utc::now(),
-                    guild: guild_id.to_string(),
-                    channel: message_info.channel_id.to_string(),
-                };
-
-                send_influx_point(state, &report.into_query(context)).await?;
-                tracing::trace!(%message_info.id, %message_info.channel_id, %message_info.author_id, "Influx point sent");
             }
         }
     }
@@ -462,10 +330,6 @@ async fn filter_message(message: &Message, state: State) -> Result<()> {
         None => {
             // For non-bot users, this should always be set.
             if !message.author.bot {
-                sentry::capture_message(
-                    "No `member` field attached to non-bot message",
-                    sentry::Level::Error,
-                );
                 tracing::error!(?message.id, "No `member` field attached to message");
             }
 
@@ -555,14 +419,6 @@ async fn filter_reaction(rxn: &GatewayReaction, state: State) -> Result<()> {
                         tracing::warn!(?action_err, ?action, "Error executing reaction action");
                     }
                 }
-
-                let report = ReactionFilterReport {
-                    time: Utc::now(),
-                    guild: guild_id.to_string(),
-                    channel: rxn.channel_id.to_string(),
-                };
-
-                send_influx_point(&state, &report.into_query("reaction_filter")).await?;
             }
         }
     }
