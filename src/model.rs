@@ -1,5 +1,8 @@
 use twilight_model::{
-    channel::{message::sticker::MessageSticker, message::ReactionType, Attachment},
+    channel::{
+        message::{sticker::MessageSticker, EmojiReactionType},
+        Attachment,
+    },
     id::{
         marker::{ChannelMarker, GuildMarker, MessageMarker, RoleMarker, UserMarker},
         Id,
@@ -7,7 +10,7 @@ use twilight_model::{
     util::datetime::Timestamp,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct MessageInfo<'a> {
     pub(crate) author_is_bot: bool,
     pub(crate) id: Id<MessageMarker>,
@@ -29,14 +32,14 @@ pub(crate) struct ReactionInfo<'a> {
     pub(crate) message_id: Id<MessageMarker>,
     pub(crate) channel_id: Id<ChannelMarker>,
     pub(crate) guild_id: Id<GuildMarker>,
-    pub(crate) reaction: ReactionType,
+    pub(crate) reaction: EmojiReactionType,
 }
 
 #[cfg(test)]
 pub(crate) mod test {
     use twilight_model::{
+        channel::message::EmojiReactionType,
         channel::message::Mention,
-        channel::message::ReactionType,
         id::{
             marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
             Id,
@@ -99,7 +102,7 @@ pub(crate) mod test {
             channel_id: CHANNEL_ID,
             message_id: MESSAGE_ID,
             guild_id: GUILD_ID,
-            reaction: ReactionType::Unicode {
+            reaction: EmojiReactionType::Unicode {
                 name: rxn.to_string(),
             },
         }

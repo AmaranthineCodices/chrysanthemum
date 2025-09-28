@@ -41,7 +41,7 @@ fn confusables() -> &'static HashMap<char, String> {
 }
 
 #[tracing::instrument]
-pub fn skeletonize(str: &str) -> Cow<str> {
+pub fn skeletonize(str: &'_ str) -> Cow<'_, str> {
     let mut result = Cow::Borrowed(str);
     let confusables = confusables();
 

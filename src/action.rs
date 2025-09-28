@@ -4,7 +4,7 @@ use twilight_http::{
 };
 use twilight_mention::Mention;
 use twilight_model::{
-    channel::message::ReactionType,
+    channel::message::EmojiReactionType,
     id::{
         marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker},
         Id,
@@ -65,7 +65,7 @@ impl MessageAction {
                 http.delete_message(*channel_id, *message_id).await?;
             }
             Self::SendMessage { to, content, .. } => {
-                http.create_message(*to).content(content)?.await?;
+                http.create_message(*to).content(content).await?;
             }
             Self::Ban {
                 user_id,
@@ -74,8 +74,8 @@ impl MessageAction {
                 reason,
             } => {
                 http.create_ban(*guild_id, *user_id)
-                    .delete_message_seconds(*delete_message_seconds)?
-                    .reason(reason)?
+                    .delete_message_seconds(*delete_message_seconds)
+                    .reason(reason)
                     .await?;
             }
             Self::Kick {
@@ -84,7 +84,7 @@ impl MessageAction {
                 reason,
             } => {
                 http.remove_guild_member(*guild_id, *user_id)
-                    .reason(reason)?
+                    .reason(reason)
                     .await?;
             }
             Self::Timeout {
@@ -97,8 +97,8 @@ impl MessageAction {
                     Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
 
                 http.update_guild_member(*guild_id, *user_id)
-                    .communication_disabled_until(Some(timeout_expires_at))?
-                    .reason(reason)?
+                    .communication_disabled_until(Some(timeout_expires_at))
+                    .reason(reason)
                     .await?;
             }
             Self::SendLog {
@@ -127,7 +127,6 @@ impl MessageAction {
 
                 http.create_message(*to)
                     .embeds(&[embed_builder.build()])
-                    .unwrap()
                     .await?;
             }
         };
@@ -152,7 +151,7 @@ pub(crate) enum ReactionAction {
     Delete {
         message_id: Id<MessageMarker>,
         channel_id: Id<ChannelMarker>,
-        reaction: ReactionType,
+        reaction: EmojiReactionType,
     },
     SendMessage {
         to: Id<ChannelMarker>,
@@ -183,7 +182,7 @@ pub(crate) enum ReactionAction {
         channel: Id<ChannelMarker>,
         filter_reason: String,
         author: Id<UserMarker>,
-        reaction: ReactionType,
+        reaction: EmojiReactionType,
     },
 }
 
@@ -197,18 +196,18 @@ impl ReactionAction {
                 reaction,
             } => {
                 let request_emoji = match reaction {
-                    ReactionType::Custom { id, name, .. } => RequestReactionType::Custom {
+                    EmojiReactionType::Custom { id, name, .. } => RequestReactionType::Custom {
                         id: *id,
                         name: name.as_deref(),
                     },
-                    ReactionType::Unicode { name } => RequestReactionType::Unicode { name },
+                    EmojiReactionType::Unicode { name } => RequestReactionType::Unicode { name },
                 };
 
                 http.delete_all_reaction(*channel_id, *message_id, &request_emoji)
                     .await?;
             }
             Self::SendMessage { to, content, .. } => {
-                http.create_message(*to).content(content)?.await?;
+                http.create_message(*to).content(content).await?;
             }
             Self::Ban {
                 user_id,
@@ -217,8 +216,8 @@ impl ReactionAction {
                 reason,
             } => {
                 http.create_ban(*guild_id, *user_id)
-                    .delete_message_seconds(*delete_message_seconds)?
-                    .reason(reason)?
+                    .delete_message_seconds(*delete_message_seconds)
+                    .reason(reason)
                     .await?;
             }
             Self::Kick {
@@ -227,7 +226,7 @@ impl ReactionAction {
                 reason,
             } => {
                 http.remove_guild_member(*guild_id, *user_id)
-                    .reason(reason)?
+                    .reason(reason)
                     .await?;
             }
             Self::Timeout {
@@ -240,8 +239,8 @@ impl ReactionAction {
                     Timestamp::from_secs(chrono::Utc::now().timestamp() + *duration)?;
 
                 http.update_guild_member(*guild_id, *user_id)
-                    .communication_disabled_until(Some(timeout_expires_at))?
-                    .reason(reason)?
+                    .communication_disabled_until(Some(timeout_expires_at))
+                    .reason(reason)
                     .await?;
             }
             Self::SendLog {
@@ -254,8 +253,8 @@ impl ReactionAction {
                 reaction,
             } => {
                 let rxn_string = match reaction {
-                    ReactionType::Custom { id, .. } => id.mention().to_string(),
-                    ReactionType::Unicode { name } => name.clone(),
+                    EmojiReactionType::Custom { id, .. } => id.mention().to_string(),
+                    EmojiReactionType::Unicode { name } => name.clone(),
                 };
 
                 http.create_message(*to)
@@ -279,7 +278,6 @@ impl ReactionAction {
                         .field(EmbedFieldBuilder::new("Reason", filter_reason).build())
                         .field(EmbedFieldBuilder::new("Reaction", rxn_string).build())
                         .build()])
-                    .unwrap()
                     .await?;
             }
         };

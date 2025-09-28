@@ -2,7 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
-use twilight_model::channel::message::ReactionType;
+use twilight_model::channel::message::EmojiReactionType;
 use twilight_model::id::{
     marker::{ChannelMarker, RoleMarker, UserMarker},
     Id,
@@ -285,7 +285,7 @@ impl config::MessageFilterRule {
 }
 
 impl config::ReactionFilter {
-    pub fn filter_reaction(&self, reaction: &ReactionType) -> FilterResult {
+    pub fn filter_reaction(&self, reaction: &EmojiReactionType) -> FilterResult {
         self.rules
             .iter()
             .map(|f| f.filter_reaction(reaction))
@@ -295,13 +295,13 @@ impl config::ReactionFilter {
 }
 
 impl config::ReactionFilterRule {
-    pub fn filter_reaction(&self, reaction: &ReactionType) -> FilterResult {
+    pub fn filter_reaction(&self, reaction: &EmojiReactionType) -> FilterResult {
         match self {
             config::ReactionFilterRule::Default {
                 emoji: filtered_emoji,
                 mode,
             } => {
-                if let ReactionType::Unicode { name } = reaction {
+                if let EmojiReactionType::Unicode { name } = reaction {
                     match mode {
                         config::FilterMode::AllowList => {
                             if !filtered_emoji.contains(name) {
@@ -326,7 +326,7 @@ impl config::ReactionFilterRule {
                 emoji: filtered_emoji,
                 mode,
             } => {
-                if let ReactionType::Custom { id, .. } = reaction {
+                if let EmojiReactionType::Custom { id, .. } = reaction {
                     match mode {
                         config::FilterMode::AllowList => {
                             if !filtered_emoji.contains(id) {
@@ -348,7 +348,7 @@ impl config::ReactionFilterRule {
                 }
             }
             config::ReactionFilterRule::CustomName { names } => {
-                if let ReactionType::Custom {
+                if let EmojiReactionType::Custom {
                     name: Some(name), ..
                 } = reaction
                 {
@@ -676,6 +676,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             ok_message.attachments = &ok_attachments;
 
@@ -691,6 +695,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             wrong_message.attachments = &wrong_attachments;
 
@@ -706,6 +714,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             missing_content_type_message.attachments = &missing_content_type_attachments;
 
@@ -740,6 +752,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             ok_message.attachments = &ok_attachments;
 
@@ -755,6 +771,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             wrong_message.attachments = &wrong_attachments;
 
@@ -770,6 +790,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             missing_content_type_message.attachments = &missing_content_type_attachments;
 
@@ -1011,6 +1035,10 @@ mod test {
                 size: 1,
                 url: "doesn't_matter".to_owned(),
                 width: None,
+                waveform: None,
+                flags: None,
+                duration_secs: None,
+                title: None,
             }];
             info.attachments = &attachments;
 

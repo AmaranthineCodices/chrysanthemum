@@ -8,14 +8,14 @@ use action::{MessageAction, ReactionAction};
 use chrono::Utc;
 use filter::SpamHistory;
 
-use futures::stream::StreamExt;
+use twilight_gateway::StreamExt;
 
 use tokio::sync::RwLock;
 use tracing::Instrument;
 
 use twilight_cache_inmemory::{InMemoryCache, ResourceType};
-use twilight_gateway::Event;
-use twilight_gateway::Shard;
+use twilight_gateway::{Event, ShardId};
+use twilight_gateway::{EventTypeFlags, Shard};
 use twilight_http::Client as HttpClient;
 use twilight_mention::Mention;
 use twilight_model::application::interaction::InteractionData;
@@ -113,65 +113,70 @@ fn main() -> Result<()> {
         | Intents::MESSAGE_CONTENT;
 
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
+        let mut shard = Shard::new(ShardId::ONE, discord_token.clone(), intents);
 
-    let (shard, mut events) = Shard::builder(discord_token.clone(), intents).build();
-    shard.start().await?;
+        let http = Arc::new(HttpClient::new(discord_token));
+        let cache = InMemoryCache::builder()
+            .resource_types(ResourceType::MESSAGE | ResourceType::MEMBER | ResourceType::USER)
+            .build();
 
-    let http = Arc::new(HttpClient::new(discord_token));
-    let cache = InMemoryCache::builder()
-        .resource_types(ResourceType::MESSAGE | ResourceType::MEMBER | ResourceType::USER)
-        .build();
+        let cfg = Arc::new(cfg);
+        let spam_history = Arc::new(RwLock::new(filter::SpamHistory::new()));
+        let initial_guild_configs =
+            config::load_guild_configs(&cfg.guild_config_dir, &cfg.active_guilds)
+                .map_err(|(_, e)| e)?;
 
-    let cfg = Arc::new(cfg);
-    let spam_history = Arc::new(RwLock::new(filter::SpamHistory::new()));
-    let initial_guild_configs =
-        config::load_guild_configs(&cfg.guild_config_dir, &cfg.active_guilds)
-            .map_err(|(_, e)| e)?;
+        let state = State {
+            armed: Arc::new(AtomicBool::new(cfg.armed_by_default)),
+            http,
+            spam_history,
+            cfg,
+            cache: Arc::new(cache),
+            application_id: Arc::new(RwLock::new(None)),
+            guild_cfgs: Arc::new(RwLock::new(initial_guild_configs)),
+        };
 
-    let state = State {
-        armed: Arc::new(AtomicBool::new(cfg.armed_by_default)),
-        http,
-        spam_history,
-        cfg,
-        cache: Arc::new(cache),
-        application_id: Arc::new(RwLock::new(None)),
-        guild_cfgs: Arc::new(RwLock::new(initial_guild_configs)),
-    };
+        tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
 
-    tracing::info!("About to enter main event loop; Chrysanthemum is now online.");
-
-    for (guild_id, _) in state.guild_cfgs.read().await.iter() {
-        let result = send_notification_to_guild(
-            &state,
-            *guild_id,
-            "Chrysanthemum online",
-            "Chrysanthemum is now online.",
-        )
-        .await;
-        if let Err(err) = result {
-            tracing::error!(?err, %guild_id, "Error sending up notification");
+        for (guild_id, _) in state.guild_cfgs.read().await.iter() {
+            let result = send_notification_to_guild(
+                &state,
+                *guild_id,
+                "Chrysanthemum online",
+                "Chrysanthemum is now online.",
+            )
+            .await;
+            if let Err(err) = result {
+                tracing::error!(?err, %guild_id, "Error sending up notification");
+            }
         }
-    }
 
-    let mut interval = tokio::time::interval(Duration::from_secs(
-        state.cfg.reload_interval.unwrap_or(DEFAULT_RELOAD_INTERVAL),
-    ));
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        tokio::select! {
-            Some(event) = events.next() => {
-                state.cache.update(&event);
-                tokio::spawn(handle_event(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
-            },
-            _ = interval.tick() => {
-                let result = reload_guild_configs(&state).await;
-                if let Err((guild_id, report)) = result {
-                    tracing::error!(?guild_id, ?report, "Error reloading guild configuration");
-                    send_notification_to_guild(&state, guild_id, "Configuration reload failed", &format!("Failure reason:\n```{:#?}```\nConfiguration changes have **not** been applied.", report)).await?;
+        let mut interval = tokio::time::interval(Duration::from_secs(
+            state.cfg.reload_interval.unwrap_or(DEFAULT_RELOAD_INTERVAL),
+        ));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                Some(event) = shard.next_event(EventTypeFlags::all()) => {
+                    match event {
+                        Ok(event) => {
+                            state.cache.update(&event);
+                            tokio::spawn(handle_event(event, state.clone()).instrument(tracing::debug_span!("Handling event")));
+                        },
+                        Err(err) => {
+                            tracing::warn!(?err, "error receiving event");
+                        }
+                    }
+                },
+                _ = interval.tick() => {
+                    let result = reload_guild_configs(&state).await;
+                    if let Err((guild_id, report)) = result {
+                        tracing::error!(?guild_id, ?report, "Error reloading guild configuration");
+                        send_notification_to_guild(&state, guild_id, "Configuration reload failed", &format!("Failure reason:\n```{:#?}```\nConfiguration changes have **not** been applied.", report)).await?;
+                    }
                 }
             }
         }
-    }
     })
 }
 
@@ -433,11 +438,7 @@ async fn filter_message_edit_http(update: &MessageUpdate, state: &State) -> Resu
         None => return Ok(()),
     };
 
-    let (author_id, author_is_bot) = match &update.author {
-        Some(author) => (author.id, author.bot),
-        None => return Ok(()),
-    };
-
+    let (author_id, author_is_bot) = (update.author.id, update.author.bot);
     let http_message = state
         .http
         .message(update.channel_id, update.id)
@@ -484,66 +485,38 @@ async fn filter_message_edit(update: &MessageUpdate, state: &State) -> Result<()
         None => return Ok(()),
     };
 
-    let cached_message = state.cache.message(update.id);
+    let message = &update.0;
 
-    match (cached_message, update.content.as_deref()) {
-        (Some(message), Some(content)) => {
-            tracing::trace!("Got message from cache and content from update");
+    let timestamp = message.timestamp;
+    let attachments = message.attachments.to_owned();
+    let sticker_items = message.sticker_items.to_owned();
 
-            let (author_id, author_is_bot) = match update.author.as_ref() {
-                Some(author) => (author.id, author.bot),
-                None => {
-                    let cached_author = state.cache.user(message.author());
-                    match cached_author {
-                        Some(author) => (author.id, author.bot),
-                        None => {
-                            // Drop the reference to the cached data. In general, updating the
-                            // Twilight cache can deadlock when a message gets deleted while
-                            // another thread holds a reference to the cached message. Dropping
-                            // the cached reference prevents this.
-                            drop(message);
-                            return filter_message_edit_http(update, state).await;
-                        }
-                    }
-                }
-            };
-
-            let timestamp = message.timestamp();
-            let attachments = message.attachments().to_owned();
-            let sticker_items = message.sticker_items().to_owned();
-
-            // For the same reason as above, we drop the message here.
-            drop(message);
-
-            let author_roles = {
-                let cached_member = state.cache.member(guild_id, author_id);
-                match cached_member.as_ref() {
-                    Some(member) => member.roles().to_owned(),
-                    None => return filter_message_edit_http(update, state).await,
-                }
-            };
-
-            let clean_message_content =
-                crate::message::clean_mentions(content, update.mentions.as_deref().unwrap_or(&[]));
-
-            let message_info = MessageInfo {
-                id: update.id,
-                author_id,
-                author_is_bot,
-                // We can assume guild_id exists since the DM intent is disabled
-                guild_id: update.guild_id.unwrap(),
-                author_roles: &author_roles[..],
-                content: &clean_message_content,
-                channel_id: update.channel_id,
-                timestamp,
-                attachments: &attachments[..],
-                stickers: &sticker_items[..],
-            };
-
-            filter_message_info(guild_id, &message_info, state, "message edit").await
+    let author_roles = {
+        let cached_member = state.cache.member(guild_id, update.author.id);
+        match cached_member.as_ref() {
+            Some(member) => member.roles().to_owned(),
+            None => return filter_message_edit_http(update, state).await,
         }
-        _ => filter_message_edit_http(update, state).await,
-    }
+    };
+
+    let clean_message_content =
+        crate::message::clean_mentions(&message.content, update.mentions.as_ref());
+
+    let message_info = MessageInfo {
+        id: update.id,
+        author_id: update.author.id,
+        author_is_bot: update.author.bot,
+        // We can assume guild_id exists since the DM intent is disabled
+        guild_id: update.guild_id.unwrap(),
+        author_roles: &author_roles[..],
+        content: &clean_message_content,
+        channel_id: update.channel_id,
+        timestamp,
+        attachments: &attachments[..],
+        stickers: &sticker_items[..],
+    };
+
+    filter_message_info(guild_id, &message_info, state, "message edit").await
 }
 
 #[tracing::instrument(skip(state))]
@@ -571,7 +544,7 @@ async fn send_notification_to_guild(
             state
                 .http
                 .create_message(notification_config.channel)
-                .embeds(&[builder.build()])?
+                .embeds(&[builder.build()])
                 .await?;
         }
     }
