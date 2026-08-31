@@ -107,9 +107,8 @@ fn main() -> Result<()> {
     let cfg_json = std::fs::read_to_string(&config_path).expect("couldn't read config file");
     let cfg: Config = serde_yaml::from_str(&cfg_json).expect("Couldn't deserialize config");
 
-    let intents = Intents::GUILD_MESSAGES
-        | Intents::GUILD_MESSAGE_REACTIONS
-        | Intents::MESSAGE_CONTENT;
+    let intents =
+        Intents::GUILD_MESSAGES | Intents::GUILD_MESSAGE_REACTIONS | Intents::MESSAGE_CONTENT;
 
     tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap().block_on(async {
         let mut shard = Shard::new(ShardId::ONE, discord_token.clone(), intents);
