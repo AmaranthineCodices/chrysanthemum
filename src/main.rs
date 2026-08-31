@@ -108,7 +108,6 @@ fn main() -> Result<()> {
     let cfg: Config = serde_yaml::from_str(&cfg_json).expect("Couldn't deserialize config");
 
     let intents = Intents::GUILD_MESSAGES
-        | Intents::GUILD_MEMBERS
         | Intents::GUILD_MESSAGE_REACTIONS
         | Intents::MESSAGE_CONTENT;
 
